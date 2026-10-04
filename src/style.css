@@ -139,27 +139,12 @@ h2 {
   background: #1b2630;
   border-radius: 6px;
 }
-.workspace-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 38px 0 30px;
-}
 .eyebrow {
   font-size: 9px;
   letter-spacing: 2px;
   font-weight: 600;
   color: var(--muted);
   line-height: 1.7;
-}
-.workspace-header .eyebrow {
-  margin-bottom: 10px;
-}
-.workspace-header > p {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.9;
-  padding: 0 8px;
 }
 .tree-tabs {
   display: flex;
@@ -860,9 +845,6 @@ form > .primary-button {
   .inspector {
     padding: 32px;
   }
-  .workspace-header {
-    padding: 44px 0 35px;
-  }
 }
 @media (max-width: 1050px) {
   main {
@@ -918,19 +900,9 @@ form > .primary-button {
     width: 18px;
     height: 18px;
   }
-  .workspace-header {
-    padding: 26px 0 22px;
-  }
-  .workspace-header > p {
-    display: none;
-  }
   .eyebrow {
     font-size: 8px;
     letter-spacing: 1.5px;
-  }
-  .workspace-header h1 {
-    font-size: 34px;
-    letter-spacing: -1px;
   }
   .tree-tab {
     padding: 16px 12px;

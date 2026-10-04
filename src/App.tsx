@@ -344,21 +344,6 @@ export function App({ workspace }: { workspace: Workspace }) {
             />
           </div>
         </header>
-        <section className="workspace-header">
-          <div>
-            <div className="eyebrow">
-              A LITTLE STRUCTURE. A LOT OF POSSIBILITY.
-            </div>
-            <h1>
-              Your goals, connected<span>.</span>
-            </h1>
-          </div>
-          <p>
-            Follow a branch.
-            <br />
-            Find your next small step.
-          </p>
-        </section>
         <nav className="tree-tabs" role="tablist" aria-label="Goal trees">
           {state.trees.map((item) => (
             <button
