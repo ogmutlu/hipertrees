@@ -9,6 +9,7 @@ import {
 import type { CSSProperties, FormEvent } from "react";
 import {
   DEFAULT_COLORS,
+  assignedNodeColors,
   focusElapsed,
   formatTime,
   shortTime,
@@ -238,7 +239,7 @@ function EditDialog({
       close();
   };
   const filename =
-    `${tree?.title ?? "Forest"}${node.id === node.treeId ? "" : ` - ${title}`}.md`.replaceAll(
+    `${tree?.title ?? "Hypertree"}${node.id === node.treeId ? "" : ` - ${title}`}.md`.replaceAll(
       "/",
       "-",
     );
@@ -329,6 +330,7 @@ export function App({ workspace }: { workspace: Workspace }) {
   >(null);
   const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState("");
+  const [customColor, setCustomColor] = useState("#dfc491");
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
   const importInput = useRef<HTMLInputElement>(null);
@@ -343,6 +345,7 @@ export function App({ workspace }: { workspace: Workspace }) {
   const time = totals(state, tree?.id ?? "", now);
   const children = state.nodes.filter((item) => item.parentId === node?.id);
   const color = node ? nodeColor(state, node) : "#dfc491";
+  const colors = node ? assignedNodeColors(state.nodes, node) : [color];
   const run = async (action: Action): Promise<boolean> => {
     setBusy(true);
     try {
@@ -522,7 +525,7 @@ export function App({ workspace }: { workspace: Workspace }) {
             </button>
           </div>
         </header>
-        <nav className="tree-tabs" role="tablist" aria-label="Goal forests">
+        <nav className="tree-tabs" role="tablist" aria-label="Goal hypertrees">
           {state.trees.map((item) => (
             <button
               key={item.id}
@@ -549,7 +552,7 @@ export function App({ workspace }: { workspace: Workspace }) {
               setDialog("tree");
             }}
           >
-            <Icon name="plus" size={16} /> New forest
+            <Icon name="plus" size={16} /> New hypertree
           </button>
         </nav>
         {tree && node ? (
@@ -606,7 +609,10 @@ export function App({ workspace }: { workspace: Workspace }) {
                   className="quiet-button"
                   aria-label="Vertex color"
                   disabled={busy || !editing}
-                  onClick={() => setDialog("color")}
+                  onClick={() => {
+                    setCustomColor(color);
+                    setDialog("color");
+                  }}
                 >
                   Vertex color
                 </button>
@@ -624,7 +630,12 @@ export function App({ workspace }: { workspace: Workspace }) {
                       });
                     }}
                   >
-                    <option value="">
+                    <option
+                      value=""
+                      disabled={
+                        node.id !== node.treeId && Boolean(tree.pedantic)
+                      }
+                    >
                       {node.id === node.treeId ? "Root" : "Disconnected"}
                     </option>
                     {state.nodes
@@ -651,7 +662,9 @@ export function App({ workspace }: { workspace: Workspace }) {
                 <button
                   className="icon-button danger"
                   aria-label={
-                    node.id === node.treeId ? "Delete forest" : "Delete subtree"
+                    node.id === node.treeId
+                      ? "Delete hypertree"
+                      : "Delete subtree"
                   }
                   disabled={!editing || busy}
                   onClick={() => setDialog("delete")}
@@ -706,13 +719,16 @@ export function App({ workspace }: { workspace: Workspace }) {
                   >
                     <p>
                       A hypertree is a hypergraph with a host tree in which each
-                      hyperedge is the vertex set of a connected subtree. A
-                      hyperforest consists of disjoint hypertrees.
+                      hyperedge is the vertex set of a connected subtree. Each
+                      graph here represents one hypertree; the collection of
+                      separate hypertrees forms a hyperforest.
                     </p>
                     <p>
                       Here, each vertex color defines a hyperedge, including the
-                      initially assigned colors. In pedantic mode, all vertices
-                      with the same color must form one connected subtree.
+                      initially assigned colors. Pedantic requires the whole
+                      graph to be connected, and all vertices with the same
+                      color to form one connected subtree. New hypertrees have
+                      pedantic enabled by default.
                     </p>
                   </div>
                 </div>
@@ -754,7 +770,7 @@ export function App({ workspace }: { workspace: Workspace }) {
         ) : (
           <section className="empty-workspace">
             <Icon name="tree" size={64} />
-            <h2>Every forest starts with one idea.</h2>
+            <h2>Every hypertree starts with one idea.</h2>
             <p>Give yours a name. You can find the vertices as you go.</p>
             <button
               className="primary-button"
@@ -763,7 +779,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                 setDialog("tree");
               }}
             >
-              Plant your first tree <Icon name="plus" />
+              Create your first hypertree <Icon name="plus" />
             </button>
           </section>
         )}
@@ -883,7 +899,7 @@ export function App({ workspace }: { workspace: Workspace }) {
         {(dialog === "tree" || dialog === "child") && (
           <Dialog
             close={() => setDialog(null)}
-            label={dialog === "tree" ? "Create forest" : "Add child goal"}
+            label={dialog === "tree" ? "Create hypertree" : "Add child goal"}
           >
             <div className="eyebrow">
               {dialog === "tree"
@@ -901,7 +917,7 @@ export function App({ workspace }: { workspace: Workspace }) {
               }}
             >
               <label>
-                {dialog === "tree" ? "Forest name" : "Goal name"}
+                {dialog === "tree" ? "Hypertree name" : "Goal name"}
                 <input
                   autoFocus
                   required
@@ -916,7 +932,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                 />
               </label>
               <button className="primary-button" type="submit" disabled={busy}>
-                {dialog === "tree" ? "Create forest" : "Add step"}
+                {dialog === "tree" ? "Create hypertree" : "Add step"}
                 <Icon name="plus" />
               </button>
             </form>
@@ -925,6 +941,59 @@ export function App({ workspace }: { workspace: Workspace }) {
         {dialog === "color" && editing && node && (
           <Dialog close={() => setDialog(null)} label="Choose vertex color">
             <h2>Color “{node.title}”</h2>
+            <button
+              className="quiet-button pedantic-toggle"
+              role="switch"
+              aria-label="Multiple colors"
+              aria-checked={node.multipleColors ?? false}
+              disabled={busy}
+              onClick={() => {
+                void run({
+                  type: "multipleColors",
+                  id: node.id,
+                  enabled: !node.multipleColors,
+                });
+              }}
+            >
+              <span className="toggle-track" aria-hidden="true">
+                <i />
+              </span>
+              Multiple colors
+            </button>
+            {node.multipleColors && (
+              <section className="selected-colors" aria-label="Selected colors">
+                <p>
+                  Select colors to add or remove them. Keep at least one color.
+                  Turning off multiple colors keeps the first color.
+                </p>
+                <div>
+                  {colors.map((selectedColor) => (
+                    <button
+                      key={selectedColor}
+                      className="quiet-button"
+                      aria-label={`Remove color ${selectedColor}`}
+                      disabled={busy || colors.length === 1}
+                      onClick={() => {
+                        void run({
+                          type: "colors",
+                          id: node.id,
+                          colors: colors.filter(
+                            (item) => item !== selectedColor,
+                          ),
+                        });
+                      }}
+                    >
+                      <span
+                        className="selected-color-dot"
+                        style={{ background: selectedColor }}
+                      />
+                      {selectedColor}
+                      <Icon name="close" size={12} />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
             <section className="default-colors" aria-label="Default colors">
               <h3>Default colors</h3>
               <div>
@@ -933,16 +1002,32 @@ export function App({ workspace }: { workspace: Workspace }) {
                     key={swatch}
                     className="color-swatch"
                     aria-label={`Default color ${index + 1}`}
-                    aria-pressed={color === swatch}
+                    aria-pressed={colors.includes(swatch)}
                     title={swatch}
                     style={{
                       background: swatch,
                       borderColor: swatch,
                       color: "#101820",
                     }}
-                    disabled={busy}
+                    disabled={
+                      busy ||
+                      Boolean(
+                        node.multipleColors &&
+                        colors.length === 1 &&
+                        colors.includes(swatch),
+                      )
+                    }
                     onClick={() => {
-                      void run({ type: "color", id: node.id, color: swatch });
+                      if (node.multipleColors)
+                        void run({
+                          type: "colors",
+                          id: node.id,
+                          colors: colors.includes(swatch)
+                            ? colors.filter((item) => item !== swatch)
+                            : [...colors, swatch],
+                        });
+                      else
+                        void run({ type: "color", id: node.id, color: swatch });
                     }}
                   >
                     {index + 1}
@@ -956,17 +1041,34 @@ export function App({ workspace }: { workspace: Workspace }) {
                 <input
                   aria-label="Vertex color"
                   type="color"
-                  value={node.color ?? color}
+                  value={node.multipleColors ? customColor : color}
                   disabled={busy}
                   onChange={(event) => {
-                    void run({
-                      type: "color",
-                      id: node.id,
-                      color: event.target.value,
-                    });
+                    if (node.multipleColors) setCustomColor(event.target.value);
+                    else
+                      void run({
+                        type: "color",
+                        id: node.id,
+                        color: event.target.value,
+                      });
                   }}
                 />
               </label>
+              {node.multipleColors && (
+                <button
+                  className="quiet-button"
+                  disabled={busy || colors.includes(customColor)}
+                  onClick={() => {
+                    void run({
+                      type: "colors",
+                      id: node.id,
+                      colors: [...colors, customColor],
+                    });
+                  }}
+                >
+                  Add custom color
+                </button>
+              )}
               <button
                 className="quiet-button pedantic-toggle"
                 role="switch"
@@ -1040,13 +1142,15 @@ export function App({ workspace }: { workspace: Workspace }) {
         {dialog === "delete" && node && (
           <Dialog
             close={() => setDialog(null)}
-            label={node.id === node.treeId ? "Delete forest" : "Delete subtree"}
+            label={
+              node.id === node.treeId ? "Delete hypertree" : "Delete subtree"
+            }
           >
             <div className="eyebrow">MAKE A LITTLE ROOM</div>
             <h2>Remove “{node.title}”?</h2>
             <p>
               {node.id === node.treeId
-                ? "This removes the entire forest, including disconnected subtrees."
+                ? "This removes the entire hypertree, including any disconnected subtrees when pedantic is off."
                 : "This removes the subtree rooted at this vertex, including all descendants."}{" "}
               Vertices removed:{" "}
               {node.id === node.treeId
@@ -1072,7 +1176,9 @@ export function App({ workspace }: { workspace: Workspace }) {
                   });
                 }}
               >
-                {node.id === node.treeId ? "Remove forest" : "Remove subtree"}
+                {node.id === node.treeId
+                  ? "Remove hypertree"
+                  : "Remove subtree"}
               </button>
             </div>
           </Dialog>
@@ -1081,7 +1187,7 @@ export function App({ workspace }: { workspace: Workspace }) {
           <Dialog close={() => setDialog(null)} label="Clear local data">
             <h2>Clear everything on this device?</h2>
             <p>
-              This permanently deletes all forests, vertices, notes, saved
+              This permanently deletes all hypertrees, vertices, notes, saved
               sessions, and any active focus session from this browser. Export a
               backup first if you want to keep your work.
             </p>

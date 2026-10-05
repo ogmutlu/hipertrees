@@ -1,6 +1,6 @@
 # hyperforest
 
-A standalone TypeScript web app for forests of goals. A dark, mathematical graph
+A standalone TypeScript web app for hypertrees of goals. A dark, mathematical graph
 canvas gives each vertex a color and each session room
 to breathe. Built with React, SVG, Vite, and strict TypeScript.
 
@@ -19,17 +19,17 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
 
 ## Use
 
-- Switch forests with the tabs, or create one with **New forest**.
+- Switch hypertrees with the tabs, or create one with **New hypertree**.
 - Vertices are small filled circles by default, with white names and no action
   icons. The top menu keeps fixed slots across modes and selections.
 - All vertices, including the distinguished root, can be dragged in edit mode.
   Drag the bottom-right corner of the graph area downward to make more room.
 - Use **Edit graph** to unlock changes. Select a vertex and use **New vertex** in the top menu to add a child. Drag an edge or its circular handle onto another vertex to change its
-  parent; drop it on empty space to disconnect. A disconnected vertex has a
+  parent; with pedantic off, drop it on empty space to disconnect. A disconnected vertex has a
   handle above it for reconnecting. The **Parent connection** selector provides
   the same controls without dragging. Cycles are rejected.
 - **New vertex**, next to **Edit graph** and **pedantic**, creates a child of the selected vertex.
-  Disconnect it using the parent selector to create an independent component.
+  With pedantic off, disconnect it using the parent selector to create an independent component.
   **Vertex color** in the top menu opens the color picker. Its numbered
   eight filled **Default colors** swatches start with the root's gold, followed by the generated subtree palette. **Fill interior** switches
   between a filled vertex and a colored boundary without losing its color.
@@ -37,22 +37,26 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
 - Click the selected vertex name in the menu to rename it in edit mode.
   Press Enter or the pencil/checkmark controls to edit and save; Escape cancels.
 - **Clear local data**, beside Import/Export, asks for confirmation before resetting
-  all forests, vertices, notes, and sessions. Export a backup first to keep a copy.
+  all hypertrees, vertices, notes, and sessions. Export a backup first to keep a copy.
 - **Done editing** freezes vertex positions and connections. Selection, focus,
   panning and zooming remain available.
-- **pedantic**, on the right of the edit toolbar, requires every vertex color's
-  vertices to induce a connected subtree of the host forest. Hover or focus it for
-  the mathematical definition. Initially assigned colors and boundary-only
-  colors count too; changing the fill setting does not change membership.
-  The setting is saved per forest. Invalid color changes, connections and
-  imports are rejected; existing disconnected color groups must be fixed before
-  enabling it.
+- **pedantic**, on the right of the edit toolbar, is enabled by default for new
+  hypertrees. It requires the entire graph to be connected and each color's
+  vertices to induce a connected subtree of the host tree. Each graph represents
+  a hypertree; the separate hypertrees together form a hyperforest. Hover or focus
+  the toggle for the definition. All colors count, including initially assigned
+  and boundary colors. The setting is saved per hypertree; existing explicit off
+  settings remain off. Invalid color changes, disconnections, and imports are
+  rejected. Reconnect all components and repair disconnected color groups before
+  enabling pedantic on an existing graph.
+  Older browser workspaces marked pedantic despite disconnected components are
+  migrated with pedantic off, keeping their vertices, notes, and sessions intact.
 - Select a child and choose **Finish goal** to remove it and its descendants.
   Their time remains credited to the parent and its ancestors; session history
   keeps the original goal names. Any active session in that subtree is saved.
 - Click a vertex to select it. Drag its circle to rearrange the graph. Drag empty
   canvas to pan; Ctrl + scroll or use +/− to zoom. Fit resets the view; Arrange lays out
-  the forest again. Adding a vertex arranges its forest automatically.
+  the hypertree again. Adding a vertex arranges its hypertree automatically.
 - Double-click a vertex, or select it and choose **Focus** in the top menu, to expand
   it into the focus view and start the timer. A leaf uses its goal name; an internal vertex uses the generic task
   **General** within that group's path. Escape or **Pause & return** shrinks the
@@ -60,14 +64,14 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
   records it; pauses never count as focus time.
 - Add a child or edit the selected vertex in the compact details menu above the graph. Every vertex supports
   an estimate and Markdown notes. The document button in the top menu opens
-  the selected vertex's Markdown editor, including outside edit mode. Export notes as `Forest - Vertex.md`; root notes
-  use `Forest.md`.
+  the selected vertex's Markdown editor, including outside edit mode. Export notes as `Hypertree - Vertex.md`; root notes
+  use `Hypertree.md`.
 - Totals include each vertex's own sessions and all its descendants, starting at
-  the forest's creation timestamp. Running time appears in those totals too.
+  the hypertree's creation timestamp. Running time appears in those totals too.
   Reconnecting moves a subtree's time to its new ancestors; the main root total
   also includes disconnected components. Session history keeps the original
   group names. Renaming preserves attribution. Deleted subtrees no longer contribute to the
-  remaining forest; their saved sessions stay in history. Deleting the active
+  remaining hypertree; their saved sessions stay in history. Deleting the active
   session's subtree is blocked until that session is saved or discarded.
 
 ## Persistent storage
@@ -75,7 +79,7 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
 Existing data from the former app is migrated to `hyperforest.workspace.v1`
 without deleting the original saved copy.
 
-Forests, positions, notes, estimates, saved sessions, and the active timer persist
+Hypertrees, positions, notes, estimates, saved sessions, and the active timer persist
 in browser localStorage under a versioned key. Reloading restores the timer;
 a running timer continues while the page is closed. Pause before leaving if you
 want to stop counting. Data stays in this browser profile on this site's origin;
@@ -141,3 +145,9 @@ are written to `/tmp/hyperforest-desktop.png`, `/tmp/hyperforest-focus.png`, and
 handles durable writes; `src/Graph.tsx` owns mouse interaction and graph rendering;
 `src/App.tsx` coordinates the workspace and its dialogs. No explicit `any` types
 are used. Imported and persisted data cross a runtime validation boundary.
+
+Enable **Multiple colors** in the vertex color menu to select several default or
+custom colors. Filled vertices show colored sectors; outlined vertices show
+colored arcs. Turning the toggle off keeps the first color. Pedantic checks every
+color independently, so a vertex can belong to several overlapping hyperedges.
+Children inherit all their parent’s colors when pedantic is enabled.

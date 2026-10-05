@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apply,
+  assignedNodeColors,
   focusElapsed,
   stateSchema,
   totals,
@@ -20,6 +21,11 @@ function example(): State {
   let state = apply(
     empty(),
     { type: "create", id: "root", title: "Thesis" },
+    1000,
+  );
+  state = apply(
+    state,
+    { type: "pedantic", treeId: "root", enabled: false },
     1000,
   );
   state = apply(
@@ -99,21 +105,20 @@ describe("focus accounting", () => {
       filled: false,
     });
     expect(state.trees[0]?.pedantic).toBe(true);
+    expect(() =>
+      apply(
+        state,
+        { type: "isolate", id: "island", treeId: "root", title: "Island" },
+        4000,
+      ),
+    ).toThrow("must be connected");
     state = apply(
       state,
-      { type: "isolate", id: "island", treeId: "root", title: "Island" },
-      4000,
-    );
-    expect(state.nodes.find((node) => node.id === "island")?.color).not.toBe(
-      before,
-    );
-    state = apply(
-      state,
-      { type: "add", id: "island-child", parentId: "island", title: "Child" },
+      { type: "add", id: "child", parentId: "leaf", title: "Child" },
       5000,
     );
-    expect(state.nodes.find((node) => node.id === "island-child")?.color).toBe(
-      state.nodes.find((node) => node.id === "island")?.color,
+    expect(state.nodes.find((node) => node.id === "child")?.color).toBe(
+      state.nodes.find((node) => node.id === "leaf")?.color,
     );
     expect(
       stateSchema.parse(JSON.parse(JSON.stringify(state))).trees[0]?.pedantic,
@@ -147,46 +152,41 @@ describe("focus accounting", () => {
     ).toThrow("connected subtree");
     expect(() =>
       apply(state, { type: "connect", id: "branch", parentId: null }, 3000),
-    ).toThrow("connected subtree");
-    state = apply(
-      state,
-      { type: "isolate", id: "island", treeId: "root", title: "Island" },
-      3000,
-    );
+    ).toThrow("must be connected");
     expect(() =>
-      apply(state, { type: "color", id: "island", color: "#aabbcc" }, 3000),
-    ).toThrow("connected subtree");
-    state = apply(
-      state,
-      { type: "color", id: "island", color: "#112233" },
-      3000,
-    );
-    expect(
-      stateSchema.parse(JSON.parse(JSON.stringify(state))).trees[0]?.pedantic,
-    ).toBe(true);
+      apply(
+        state,
+        { type: "isolate", id: "island", treeId: "root", title: "Island" },
+        3000,
+      ),
+    ).toThrow("must be connected");
     expect(() =>
       stateSchema.parse({
         ...state,
         nodes: state.nodes.map((node) =>
-          node.id === "branch" ? { ...node, color: "#112233" } : node,
+          node.id === "branch" ? { ...node, parentId: null } : node,
         ),
       }),
-    ).toThrow();
+    ).toThrow("must be connected");
     state = apply(
       state,
       { type: "complete", id: "branch", sessionId: "unused" },
       4000,
     );
-    expect(state.nodes.map((node) => node.id)).toEqual(["root", "island"]);
+    expect(state.nodes.map((node) => node.id)).toEqual(["root"]);
     state = apply(
       state,
       { type: "pedantic", treeId: "root", enabled: false },
       4000,
     );
-    expect(
-      apply(state, { type: "color", id: "island", color: "#aabbcc" }, 5000)
-        .trees[0]?.pedantic,
-    ).toBe(false);
+    state = apply(
+      state,
+      { type: "isolate", id: "island", treeId: "root", title: "Island" },
+      5000,
+    );
+    expect(() =>
+      apply(state, { type: "pedantic", treeId: "root", enabled: true }, 6000),
+    ).toThrow("must be connected");
   });
   it("supports disconnected components and rejects invalid reconnections", () => {
     let state = apply(example(), { type: "start", id: "leaf" }, 2000);
@@ -553,5 +553,164 @@ describe("validated persistence", () => {
   });
   it("creates a valid, fully laid-out example", () => {
     expect(stateSchema.parse(welcome(1000)).nodes).toHaveLength(9);
+  });
+});
+
+it("new hypertrees default to pedantic and require connectivity even with distinct colors", () => {
+  let state = apply(
+    empty(),
+    { type: "create", id: "root", title: "Connected" },
+    1000,
+  );
+  expect(state.trees[0]?.pedantic).toBe(true);
+  state = apply(
+    state,
+    { type: "add", id: "leaf", parentId: "root", title: "Leaf" },
+    1001,
+  );
+  state = apply(state, { type: "color", id: "leaf", color: "#ef6a75" }, 1002);
+  expect(() =>
+    apply(state, { type: "connect", id: "leaf", parentId: null }, 1003),
+  ).toThrow("must be connected");
+  expect(() =>
+    stateSchema.parse({
+      ...state,
+      nodes: state.nodes.map((node) =>
+        node.id === "leaf" ? { ...node, parentId: null } : node,
+      ),
+    }),
+  ).toThrow("must be connected");
+  state = apply(
+    state,
+    { type: "pedantic", treeId: "root", enabled: false },
+    1004,
+  );
+  state = apply(state, { type: "connect", id: "leaf", parentId: null }, 1005);
+  expect(() =>
+    apply(state, { type: "pedantic", treeId: "root", enabled: true }, 1006),
+  ).toThrow("must be connected");
+  state = apply(state, { type: "connect", id: "leaf", parentId: "root" }, 1007);
+  state = apply(
+    state,
+    { type: "pedantic", treeId: "root", enabled: true },
+    1008,
+  );
+  expect(state.trees[0]?.pedantic).toBe(true);
+});
+
+it("migrates previously pedantic disconnected storage without weakening imports", () => {
+  let state = apply(
+    example(),
+    { type: "color", id: "leaf", color: "#ef6a75" },
+    2000,
+  );
+  state = apply(state, { type: "connect", id: "leaf", parentId: null }, 2001);
+  const legacy = {
+    ...state,
+    trees: state.trees.map((tree) => ({ ...tree, pedantic: true })),
+  };
+  const storage = new MemoryStorage();
+  storage.setItem(STORAGE_KEY, JSON.stringify(legacy));
+  const ws = new Workspace(storage, 2002);
+  expect(ws.getSnapshot().trees[0]?.pedantic).toBe(false);
+  expect(ws.getSnapshot().nodes).toEqual(state.nodes);
+  expect(() => ws.replace(JSON.stringify(legacy))).toThrow("must be connected");
+  const invalid = { ...legacy, version: 99 };
+  storage.setItem(STORAGE_KEY, JSON.stringify(invalid));
+  expect(() => new Workspace(storage, 2003)).toThrow();
+  expect(storage.getItem(STORAGE_KEY)).toBe(JSON.stringify(invalid));
+});
+
+describe("multiple vertex colors", () => {
+  it("preserves colors through backups and keeps the first when disabled", () => {
+    let state = apply(
+      example(),
+      { type: "multipleColors", id: "branch", enabled: true },
+      2000,
+    );
+    state = apply(
+      state,
+      { type: "colors", id: "branch", colors: ["#ABCDEF", "#123456"] },
+      2001,
+    );
+    state = stateSchema.parse(JSON.parse(JSON.stringify(state)));
+    expect(
+      assignedNodeColors(
+        state.nodes,
+        state.nodes.find((node) => node.id === "branch")!,
+      ),
+    ).toEqual(["#abcdef", "#123456"]);
+    expect(() =>
+      apply(state, { type: "colors", id: "branch", colors: [] }, 2002),
+    ).toThrow();
+    expect(() =>
+      apply(
+        state,
+        { type: "colors", id: "branch", colors: ["#abcdef", "#ABCDEF"] },
+        2002,
+      ),
+    ).toThrow();
+    state = apply(
+      state,
+      { type: "multipleColors", id: "branch", enabled: false },
+      2003,
+    );
+    expect(
+      assignedNodeColors(
+        state.nodes,
+        state.nodes.find((node) => node.id === "branch")!,
+      ),
+    ).toEqual(["#abcdef"]);
+  });
+  it("enforces connected overlapping hyperedges and inherits all parent colors", () => {
+    let state = apply(
+      empty(),
+      { type: "create", id: "root", title: "Work" },
+      1000,
+    );
+    state = apply(
+      state,
+      { type: "multipleColors", id: "root", enabled: true },
+      1001,
+    );
+    state = apply(
+      state,
+      { type: "colors", id: "root", colors: ["#abcdef", "#123456"] },
+      1002,
+    );
+    state = apply(
+      state,
+      { type: "add", id: "middle", parentId: "root", title: "Middle" },
+      1003,
+    );
+    state = apply(
+      state,
+      { type: "add", id: "leaf", parentId: "middle", title: "Leaf" },
+      1004,
+    );
+    expect(
+      assignedNodeColors(
+        state.nodes,
+        state.nodes.find((node) => node.id === "leaf")!,
+      ),
+    ).toEqual(["#abcdef", "#123456"]);
+    expect(() =>
+      apply(state, { type: "colors", id: "middle", colors: ["#abcdef"] }, 1005),
+    ).toThrow();
+    expect(() =>
+      apply(
+        state,
+        { type: "multipleColors", id: "middle", enabled: false },
+        1005,
+      ),
+    ).toThrow();
+    state = apply(
+      state,
+      { type: "colors", id: "leaf", colors: ["#abcdef"] },
+      1006,
+    );
+    expect(() =>
+      apply(state, { type: "colors", id: "middle", colors: ["#abcdef"] }, 1007),
+    ).not.toThrow();
   });
 });

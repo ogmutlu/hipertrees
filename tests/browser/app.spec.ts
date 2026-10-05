@@ -139,9 +139,7 @@ test("pedantic explains the definition and rejects disconnected color groups", a
   const toggle = page.getByRole("switch", { name: "pedantic", exact: true });
   await toggle.hover();
   await expect(page.getByRole("tooltip")).toContainText("connected subtree");
-  await expect(page.getByRole("tooltip")).toContainText(
-    /disconnected hypertrees|disjoint hypertrees/,
-  );
+  await expect(page.getByRole("tooltip")).toContainText(/separate hypertrees/);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await page.getByRole("button", { name: "Edit graph", exact: true }).click();
@@ -480,10 +478,12 @@ test("new workspaces are empty and roots can move in an expandable graph", async
   );
   await page.goto("./");
   await expect(page.getByRole("tab")).toHaveCount(0);
-  await page.getByRole("button", { name: "New forest", exact: true }).click();
-  await page.getByLabel("Forest name").fill("My tree");
   await page
-    .getByRole("button", { name: "Create forest", exact: true })
+    .getByRole("button", { name: "New hypertree", exact: true })
+    .click();
+  await page.getByLabel("Hypertree name").fill("My tree");
+  await page
+    .getByRole("button", { name: "Create hypertree", exact: true })
     .click();
   await page.getByRole("button", { name: "Edit graph", exact: true }).click();
   const root = page.locator(".root-goal");
@@ -646,10 +646,10 @@ test("creates trees and children, edits markdown, and restores them on reload", 
   page,
 }) => {
   await page.goto("./");
-  await page.getByRole("button", { name: "New forest" }).click();
-  await page.getByLabel("Forest name").fill("Thesis");
+  await page.getByRole("button", { name: "New hypertree" }).click();
+  await page.getByLabel("Hypertree name").fill("Thesis");
   await page
-    .getByRole("button", { name: "Create forest", exact: true })
+    .getByRole("button", { name: "Create hypertree", exact: true })
     .click();
   await expect(page.getByRole("tab", { name: /Thesis/ })).toHaveAttribute(
     "aria-selected",
@@ -770,7 +770,9 @@ test("clear local data requires confirmation and stays empty after reload", asyn
     .getByRole("button", { name: "Delete all local data", exact: true })
     .click();
   await expect(
-    page.getByRole("heading", { name: "Every forest starts with one idea." }),
+    page.getByRole("heading", {
+      name: "Every hypertree starts with one idea.",
+    }),
   ).toBeVisible();
   await expect(page.locator(".paused-dock")).toHaveCount(0);
   expect(
@@ -781,7 +783,9 @@ test("clear local data requires confirmation and stays empty after reload", asyn
   ).toBe("keep");
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Every forest starts with one idea." }),
+    page.getByRole("heading", {
+      name: "Every hypertree starts with one idea.",
+    }),
   ).toBeVisible();
 });
 
@@ -851,4 +855,83 @@ test("focus tab title shows only the timer and updates every second", async ({
   await expect(page).toHaveTitle("hyperforest — a little structure");
   await page.clock.runFor(2000);
   await expect(page).toHaveTitle("hyperforest — a little structure");
+});
+
+test("new hypertrees enable pedantic by default and cannot be disconnected", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page
+    .getByRole("button", { name: "New hypertree", exact: true })
+    .click();
+  await page.getByLabel("Hypertree name").fill("Connected graph");
+  await page
+    .getByRole("button", { name: "Create hypertree", exact: true })
+    .click();
+  const toggle = page.getByRole("switch", { name: "pedantic", exact: true });
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await toggle.hover();
+  await expect(page.getByRole("tooltip")).toContainText(
+    "whole graph to be connected",
+  );
+  await page.getByRole("button", { name: "Edit graph", exact: true }).click();
+  await page.getByRole("button", { name: "New vertex", exact: true }).click();
+  await page.getByLabel("Goal name", { exact: true }).fill("Distinct color");
+  await page.getByRole("button", { name: "Add step", exact: true }).click();
+  await chooseColor(page, "#ef6a75");
+  const parent = page.getByLabel("Parent connection");
+  const rootId = await parent.inputValue();
+  await expect(parent.locator('option[value=""]')).toHaveAttribute(
+    "disabled",
+    "",
+  );
+  await toggle.click();
+  await parent.selectOption("");
+  await toggle.click();
+  await expect(page.getByRole("alert")).toContainText("must be connected");
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await parent.selectOption(rootId);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await page.reload();
+  await page.getByRole("tab", { name: /Connected graph/ }).click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+});
+
+test("multiple colors render, persist, and can return to a single color", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.getByRole("button", { name: "Edit graph", exact: true }).click();
+  await page.getByRole("button", { name: "Vertex color", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Choose vertex color" });
+  const multiple = dialog.getByRole("switch", {
+    name: "Multiple colors",
+    exact: true,
+  });
+  await multiple.click();
+  await expect(multiple).toHaveAttribute("aria-checked", "true");
+  await dialog
+    .getByRole("button", { name: "Default color 2", exact: true })
+    .click();
+  await expect(
+    page.getByTestId("node-colors-welcome").locator("path"),
+  ).toHaveCount(2);
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await page.reload();
+  await expect(
+    page.getByTestId("node-colors-welcome").locator("path"),
+  ).toHaveCount(2);
+  await page.getByRole("button", { name: "Edit graph", exact: true }).click();
+  await page.getByRole("button", { name: "Vertex color", exact: true }).click();
+  await expect(multiple).toHaveAttribute("aria-checked", "true");
+  await dialog
+    .getByRole("switch", { name: "Fill interior", exact: true })
+    .click();
+  await expect(
+    page.getByTestId("node-colors-welcome").locator("path").first(),
+  ).toHaveAttribute("fill", "none");
+  await multiple.click();
+  await expect(multiple).toHaveAttribute("aria-checked", "false");
+  await expect(page.getByTestId("node-colors-welcome")).toHaveCount(0);
 });

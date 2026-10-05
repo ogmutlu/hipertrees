@@ -1741,3 +1741,30 @@ button:disabled {
 .inspector > .edit-toolbar > button:first-child {
   width: 116px;
 }
+
+.selected-colors {
+  margin-top: 16px;
+}
+.selected-colors p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.selected-colors > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.selected-colors button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.selected-color-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.node-color-control {
+  flex-wrap: wrap;
+}

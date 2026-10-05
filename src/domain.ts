@@ -6,6 +6,8 @@ interface ColorNode {
   treeId: string;
   parentId: string | null;
   color?: string | undefined;
+  colors?: string[] | undefined;
+  multipleColors?: boolean | undefined;
 }
 export const DEFAULT_COLORS = [
   "#dfc491",
@@ -21,6 +23,8 @@ export function assignedNodeColor(
   nodes: readonly ColorNode[],
   node: ColorNode,
 ): string {
+  if (node.multipleColors && node.colors?.[0])
+    return node.colors[0].toLowerCase();
   if (node.color) return node.color.toLowerCase();
   if (node.id === node.treeId) return "#dfc491";
   let ancestor = node;
@@ -47,17 +51,18 @@ export function assignedNodeColor(
     ] ?? "#80c9bc"
   );
 }
-function isolatedColor(state: { nodes: ColorNode[] }, treeId: string): string {
-  const used = new Set(
-    state.nodes
-      .filter((node) => node.treeId === treeId)
-      .map((node) => assignedNodeColor(state.nodes, node)),
-  );
-  let value = 0x80c9bc;
-  while (used.has(`#${value.toString(16).padStart(6, "0")}`))
-    value = (value + 0x1f4567) % 0x1000000;
-  return `#${value.toString(16).padStart(6, "0")}`;
+export function assignedNodeColors(
+  nodes: readonly ColorNode[],
+  node: ColorNode,
+): string[] {
+  return node.multipleColors && node.colors?.length
+    ? node.colors.map((color) => color.toLowerCase())
+    : [assignedNodeColor(nodes, node)];
 }
+const colorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/)
+  .transform((color) => color.toLowerCase());
 const nodeSchema = z.object({
   id: z.string().min(1),
   treeId: z.string().min(1),
@@ -66,11 +71,17 @@ const nodeSchema = z.object({
   estimateMinutes: z.number().finite().nonnegative(),
   notes: z.string(),
   filled: z.boolean().optional(),
-  color: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/)
-    .transform((color) => color.toLowerCase())
+  color: colorSchema.optional(),
+  colors: z
+    .array(colorSchema)
+    .min(1)
+    .max(32)
+    .refine(
+      (colors) => new Set(colors).size === colors.length,
+      "Vertex colors must be unique",
+    )
     .optional(),
+  multipleColors: z.boolean().optional(),
   x: z.number().finite(),
   y: z.number().finite(),
 });
@@ -123,6 +134,8 @@ export const stateSchema = z
     const trees = new Map(state.trees.map((tree) => [tree.id, tree]));
     const siblingNames = new Set<string>();
     for (const node of state.nodes) {
+      if (node.colors && !node.multipleColors)
+        fail("Enable multiple colors before assigning a color list.");
       const root = nodes.get(node.treeId);
       const parent = node.parentId === null ? null : nodes.get(node.parentId);
       if (
@@ -133,7 +146,7 @@ export const stateSchema = z
         (node.id === node.treeId && node.parentId !== null) ||
         (node.parentId !== null && (!parent || parent.treeId !== node.treeId))
       )
-        fail("Invalid forest structure");
+        fail("Invalid graph structure");
       const key = `${node.treeId}:${node.parentId}:${node.title}`;
       if (siblingNames.has(key)) fail("Sibling names must be unique");
       siblingNames.add(key);
@@ -141,7 +154,7 @@ export const stateSchema = z
       let next = node.parentId;
       while (next !== null) {
         if (ancestors.has(next)) {
-          fail("Forest contains a cycle");
+          fail("Graph contains a cycle");
           break;
         }
         ancestors.add(next);
@@ -150,7 +163,7 @@ export const stateSchema = z
     }
     for (const tree of state.trees)
       if (nodes.get(tree.id)?.title !== tree.title)
-        fail("Root name must match the tree");
+        fail("Root name must match the hypertree");
     for (const session of state.sessions)
       if (session.endedAt < session.startedAt) fail("Invalid session dates");
     if (
@@ -162,11 +175,20 @@ export const stateSchema = z
       if (!tree.pedantic) continue;
       const groups = new Map<string, Set<string>>();
       const forestNodes = state.nodes.filter((node) => node.treeId === tree.id);
+      if (
+        forestNodes.some(
+          (node) => node.id !== tree.id && node.parentId === null,
+        )
+      )
+        fail(
+          "pedantic: a hypertree must be connected. Connect every vertex to the root before enabling pedantic.",
+        );
       for (const node of forestNodes) {
-        const color = assignedNodeColor(state.nodes, node);
-        const group = groups.get(color) ?? new Set<string>();
-        group.add(node.id);
-        groups.set(color, group);
+        for (const color of assignedNodeColors(state.nodes, node)) {
+          const group = groups.get(color) ?? new Set<string>();
+          group.add(node.id);
+          groups.set(color, group);
+        }
       }
       // In a forest, an induced subgraph is connected iff it has n - 1 edges.
       for (const [color, group] of groups) {
@@ -282,6 +304,8 @@ export type Action =
   | { type: "create"; id: string; title: string }
   | { type: "isolate"; id: string; treeId: string; title: string }
   | { type: "color"; id: string; color: string | null }
+  | { type: "colors"; id: string; colors: string[] }
+  | { type: "multipleColors"; id: string; enabled: boolean }
   | { type: "fill"; id: string; filled: boolean }
   | { type: "add"; id: string; parentId: string; title: string }
   | {
@@ -389,7 +413,7 @@ export function apply(state: State, action: Action, now: number): State {
   switch (action.type) {
     case "pedantic": {
       if (!state.trees.some((tree) => tree.id === action.treeId))
-        throw new Error("This forest no longer exists.");
+        throw new Error("This hypertree no longer exists.");
       next = {
         ...state,
         trees: state.trees.map((tree) =>
@@ -403,10 +427,13 @@ export function apply(state: State, action: Action, now: number): State {
     case "create": {
       const title = action.title.trim();
       if (state.trees.some((tree) => tree.title === title))
-        throw new Error("A forest with this name already exists.");
+        throw new Error("A hypertree with this name already exists.");
       next = {
         ...state,
-        trees: [...state.trees, { id: action.id, title, createdAt: now }],
+        trees: [
+          ...state.trees,
+          { id: action.id, title, createdAt: now, pedantic: true },
+        ],
         nodes: [
           ...state.nodes,
           {
@@ -425,7 +452,7 @@ export function apply(state: State, action: Action, now: number): State {
     }
     case "isolate": {
       if (!state.trees.some((tree) => tree.id === action.treeId))
-        throw new Error("This forest no longer exists.");
+        throw new Error("This hypertree no longer exists.");
       const isolatedCount = state.nodes.filter(
         (node) => node.treeId === action.treeId && node.parentId === null,
       ).length;
@@ -442,9 +469,6 @@ export function apply(state: State, action: Action, now: number): State {
             notes: "",
             x: 750 + (isolatedCount % 3) * 80,
             y: 220 + (isolatedCount % 5) * 75,
-            ...(state.trees.find((tree) => tree.id === action.treeId)?.pedantic
-              ? { color: isolatedColor(state, action.treeId), filled: true }
-              : {}),
           },
         ],
       };
@@ -466,12 +490,49 @@ export function apply(state: State, action: Action, now: number): State {
         ...state,
         nodes: state.nodes.map((node) => {
           if (node.id !== action.id) return node;
-          const { color: previousColor, ...rest } = node;
+          const {
+            color: previousColor,
+            colors: previousColors,
+            ...rest
+          } = node;
           void previousColor;
-          return action.color === null
-            ? rest
-            : { ...rest, color: action.color };
+          void previousColors;
+          const updated =
+            action.color === null ? rest : { ...rest, color: action.color };
+          return node.multipleColors
+            ? { ...updated, colors: [assignedNodeColor(state.nodes, updated)] }
+            : updated;
         }),
+      };
+      break;
+    }
+    case "multipleColors": {
+      requireNode(state, action.id);
+      next = {
+        ...state,
+        nodes: state.nodes.map((node) => {
+          if (node.id !== action.id) return node;
+          const colors = assignedNodeColors(state.nodes, node);
+          const { colors: previousColors, ...rest } = node;
+          void previousColors;
+          return action.enabled
+            ? { ...rest, multipleColors: true, colors }
+            : { ...rest, multipleColors: false, color: colors[0] };
+        }),
+      };
+      break;
+    }
+    case "colors": {
+      const node = requireNode(state, action.id);
+      if (!node.multipleColors)
+        throw new Error("Enable multiple colors first.");
+      next = {
+        ...state,
+        nodes: state.nodes.map((item) =>
+          item.id === action.id
+            ? { ...item, colors: action.colors, color: action.colors[0] }
+            : item,
+        ),
       };
       break;
     }
@@ -496,6 +557,12 @@ export function apply(state: State, action: Action, now: number): State {
                 ? {
                     color: assignedNodeColor(state.nodes, parent),
                     filled: true,
+                    ...(parent.multipleColors
+                      ? {
+                          multipleColors: true,
+                          colors: assignedNodeColors(state.nodes, parent),
+                        }
+                      : {}),
                   }
                 : {}),
             },
@@ -690,6 +757,12 @@ export function welcome(now: number): State {
   state = apply(
     state,
     { type: "create", id: "welcome", title: "A meaningful project" },
+    now,
+  );
+  // Legacy demo fixtures keep their original distinct subtree colors.
+  state = apply(
+    state,
+    { type: "pedantic", treeId: "welcome", enabled: false },
     now,
   );
   for (const [id, parentId, title] of [

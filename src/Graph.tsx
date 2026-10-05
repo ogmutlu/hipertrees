@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Action, GoalNode, State } from "./domain";
-import { assignedNodeColor, shortTime } from "./domain";
+import { assignedNodeColor, assignedNodeColors, shortTime } from "./domain";
 import { Icon } from "./icons";
 
 export function nodeColor(state: State, node: GoalNode): string {
@@ -195,7 +195,7 @@ export function Graph({
         className="graph-svg"
         viewBox="0 0 1100 720"
         preserveAspectRatio={compact ? "xMidYMid slice" : "xMidYMid meet"}
-        aria-label="Goal forest"
+        aria-label="Goal hypertree"
         onPointerDown={(event) => down(event)}
         onPointerMove={move}
         onPointerUp={() => {
@@ -293,6 +293,7 @@ export function Graph({
             })()}
           {nodes.map((node) => {
             const color = nodeColor(state, node);
+            const colors = assignedNodeColors(state.nodes, node);
             const isActive = state.focus?.nodeId === node.id;
 
             const radius = node.id === treeId ? 24 : 18;
@@ -351,6 +352,32 @@ export function Graph({
                     stroke={color}
                     strokeWidth={selected === node.id ? "2" : "1.4"}
                   />
+                  {colors.length > 1 && (
+                    <g data-testid={`node-colors-${node.id}`}>
+                      {colors.map((segment, index) => {
+                        const start =
+                          -Math.PI / 2 + (index * 2 * Math.PI) / colors.length;
+                        const end =
+                          -Math.PI / 2 +
+                          ((index + 1) * 2 * Math.PI) / colors.length;
+                        const arc = `M${radius * Math.cos(start)},${radius * Math.sin(start)} A${radius},${radius} 0 0 1 ${radius * Math.cos(end)},${radius * Math.sin(end)}`;
+                        return (
+                          <path
+                            key={segment}
+                            data-color={segment}
+                            d={
+                              node.filled
+                                ? `M0,0 L${radius * Math.cos(start)},${radius * Math.sin(start)} ${arc.slice(arc.indexOf(" A") + 1)} Z`
+                                : arc
+                            }
+                            fill={node.filled ? segment : "none"}
+                            stroke={segment}
+                            strokeWidth={selected === node.id ? "2" : "1.4"}
+                          />
+                        );
+                      })}
+                    </g>
+                  )}
                   <circle
                     r={radius - 7}
                     fill="none"
