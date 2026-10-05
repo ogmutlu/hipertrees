@@ -384,12 +384,20 @@ export function App({ workspace }: { workspace: Workspace }) {
     if (running) focusDialog.current?.showModal();
     else focusDialog.current?.close();
     const frame = requestAnimationFrame(() => setExpanded(running));
-    document.title =
-      running && focusNode
-        ? `${focusNode.title} · ${formatTime(focusElapsed(focus, Date.now()))} — hyperforest`
-        : "hyperforest — a little structure";
     return () => cancelAnimationFrame(frame);
   }, [running, focusNode, focus]);
+  useEffect(() => {
+    if (!running) {
+      document.title = "hyperforest — a little structure";
+      return;
+    }
+    const updateTitle = (): void => {
+      document.title = formatTime(focusElapsed(focus, Date.now()));
+    };
+    updateTitle();
+    const timer = setInterval(updateTitle, 1000);
+    return () => clearInterval(timer);
+  }, [running, focus]);
   const start = async (
     id: string,
     point: { x: number; y: number },

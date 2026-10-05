@@ -835,3 +835,20 @@ test("export writes a backup through the native Save As API", async ({
   );
   expect(saved).toEqual(cached);
 });
+
+test("focus tab title shows only the timer and updates every second", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.clock.install();
+  await focusVertex(page, "Read & wonder");
+  await expect(page).toHaveTitle("00:00:00");
+  await page.clock.runFor(1000);
+  await expect(page).toHaveTitle("00:00:01");
+  await page.clock.runFor(1000);
+  await expect(page).toHaveTitle("00:00:02");
+  await page.getByRole("button", { name: "Pause & return" }).click();
+  await expect(page).toHaveTitle("hyperforest — a little structure");
+  await page.clock.runFor(2000);
+  await expect(page).toHaveTitle("hyperforest — a little structure");
+});
