@@ -110,6 +110,12 @@ production build, and deploys `dist/` to Pages. This checkout's top-level
 `.github/workflows/web.yml` runs checks and Chromium tests for `web/`; it does not
 publish the Python repository at the wrong URL. No deployment has been performed.
 
+The Pages workflow uses a distinct artifact name for each build attempt and
+passes that name to deployment, avoiding ambiguous `github-pages` artifacts on
+retries. After updating the workflow in the web repository, start a new run from
+the updated commit. Re-running a failed run from an older commit still uses the
+older workflow. The web workflows use Node 24 actions and Ubuntu 24.04 runners.
+
 You can also serve the contents of `dist/` at `/hyperforest/` on any static host.
 [Vite's Pages deployment documentation](https://vite.dev/guide/static-deploy.html#github-pages)
 explains the base-path and GitHub Actions configuration.
