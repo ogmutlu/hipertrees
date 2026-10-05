@@ -1,6 +1,63 @@
 import { z } from "zod";
 
 const timestamp = z.number().finite().nonnegative();
+interface ColorNode {
+  id: string;
+  treeId: string;
+  parentId: string | null;
+  color?: string | undefined;
+}
+export const DEFAULT_COLORS = [
+  "#dfc491",
+  "#80c9bc",
+  "#9ca8dc",
+  "#b7c894",
+  "#cb99bc",
+  "#86b7db",
+  "#dd9689",
+  "#a5cfb4",
+] as const;
+export function assignedNodeColor(
+  nodes: readonly ColorNode[],
+  node: ColorNode,
+): string {
+  if (node.color) return node.color.toLowerCase();
+  if (node.id === node.treeId) return "#dfc491";
+  let ancestor = node;
+  const seen = new Set<string>();
+  while (
+    ancestor.parentId !== node.treeId &&
+    ancestor.parentId !== null &&
+    !seen.has(ancestor.id)
+  ) {
+    seen.add(ancestor.id);
+    const parent = nodes.find((item) => item.id === ancestor.parentId);
+    if (!parent) break;
+    ancestor = parent;
+  }
+  const siblings = nodes.filter((item) => item.parentId === node.treeId);
+  return (
+    DEFAULT_COLORS[
+      (Math.max(
+        0,
+        siblings.findIndex((item) => item.id === ancestor.id),
+      ) %
+        (DEFAULT_COLORS.length - 1)) +
+        1
+    ] ?? "#80c9bc"
+  );
+}
+function isolatedColor(state: { nodes: ColorNode[] }, treeId: string): string {
+  const used = new Set(
+    state.nodes
+      .filter((node) => node.treeId === treeId)
+      .map((node) => assignedNodeColor(state.nodes, node)),
+  );
+  let value = 0x80c9bc;
+  while (used.has(`#${value.toString(16).padStart(6, "0")}`))
+    value = (value + 0x1f4567) % 0x1000000;
+  return `#${value.toString(16).padStart(6, "0")}`;
+}
 const nodeSchema = z.object({
   id: z.string().min(1),
   treeId: z.string().min(1),
@@ -8,6 +65,12 @@ const nodeSchema = z.object({
   title: z.string().trim().min(1).max(100),
   estimateMinutes: z.number().finite().nonnegative(),
   notes: z.string(),
+  filled: z.boolean().optional(),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .transform((color) => color.toLowerCase())
+    .optional(),
   x: z.number().finite(),
   y: z.number().finite(),
 });
@@ -15,6 +78,7 @@ const treeSchema = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(100),
   createdAt: timestamp,
+  pedantic: z.boolean().optional(),
 });
 const sessionSchema = z.object({
   id: z.string().min(1),
@@ -55,7 +119,7 @@ export const stateSchema = z
       ids.add(key);
     }
     const nodes = new Map(state.nodes.map((node) => [node.id, node]));
-    if (nodes.size !== state.nodes.length) fail("Duplicate node identity");
+    if (nodes.size !== state.nodes.length) fail("Duplicate vertex identity");
     const trees = new Map(state.trees.map((tree) => [tree.id, tree]));
     const siblingNames = new Set<string>();
     for (const node of state.nodes) {
@@ -66,11 +130,10 @@ export const stateSchema = z
         !root ||
         root.parentId !== null ||
         root.treeId !== root.id ||
-        (node.parentId === null
-          ? node.id !== node.treeId
-          : !parent || parent.treeId !== node.treeId)
+        (node.id === node.treeId && node.parentId !== null) ||
+        (node.parentId !== null && (!parent || parent.treeId !== node.treeId))
       )
-        fail("Invalid tree structure");
+        fail("Invalid forest structure");
       const key = `${node.treeId}:${node.parentId}:${node.title}`;
       if (siblingNames.has(key)) fail("Sibling names must be unique");
       siblingNames.add(key);
@@ -78,7 +141,7 @@ export const stateSchema = z
       let next = node.parentId;
       while (next !== null) {
         if (ancestors.has(next)) {
-          fail("Tree contains a cycle");
+          fail("Forest contains a cycle");
           break;
         }
         ancestors.add(next);
@@ -94,8 +157,40 @@ export const stateSchema = z
       state.focus &&
       nodes.get(state.focus.nodeId)?.treeId !== state.focus.treeId
     )
-      fail("Focus node is missing");
-  });
+      fail("Focus vertex is missing");
+    for (const tree of state.trees) {
+      if (!tree.pedantic) continue;
+      const groups = new Map<string, Set<string>>();
+      const forestNodes = state.nodes.filter((node) => node.treeId === tree.id);
+      for (const node of forestNodes) {
+        const color = assignedNodeColor(state.nodes, node);
+        const group = groups.get(color) ?? new Set<string>();
+        group.add(node.id);
+        groups.set(color, group);
+      }
+      // In a forest, an induced subgraph is connected iff it has n - 1 edges.
+      for (const [color, group] of groups) {
+        const edges = forestNodes.filter(
+          (node) =>
+            group.has(node.id) &&
+            node.parentId !== null &&
+            group.has(node.parentId),
+        ).length;
+        if (edges !== group.size - 1)
+          fail(
+            `pedantic: vertices colored ${color} must form one connected subtree. Connect them through vertices of that color or recolor them.`,
+          );
+      }
+    }
+  })
+  .transform((state): typeof state => ({
+    ...state,
+    nodes: state.nodes.map((node) => ({
+      ...node,
+      color: assignedNodeColor(state.nodes, node),
+      filled: node.filled ?? true,
+    })),
+  }));
 export type State = z.infer<typeof stateSchema>;
 export type GoalNode = z.infer<typeof nodeSchema>;
 export type GoalTree = z.infer<typeof treeSchema>;
@@ -103,7 +198,7 @@ export type Focus = z.infer<typeof focusSchema>;
 
 export function requireNode(state: State, id: string): GoalNode {
   const node = state.nodes.find((item) => item.id === id);
-  if (!node) throw new Error("This node no longer exists.");
+  if (!node) throw new Error("This vertex no longer exists.");
   return node;
 }
 export function nodePath(state: State, id: string): string {
@@ -137,10 +232,14 @@ export function totals(
   if (!tree) return result;
   const credit = (nodeId: string, duration: number): void => {
     let node = nodes.get(nodeId);
+    let reachedRoot = false;
     while (node) {
+      if (node.id === treeId) reachedRoot = true;
       result.set(node.id, (result.get(node.id) ?? 0) + duration);
       node = node.parentId === null ? undefined : nodes.get(node.parentId);
     }
+    if (!reachedRoot && nodes.has(nodeId))
+      result.set(treeId, (result.get(treeId) ?? 0) + duration);
   };
   for (const session of state.sessions)
     if (session.treeId === treeId && session.startedAt >= tree.createdAt)
@@ -179,7 +278,11 @@ export function shortTime(ms: number): string {
     : `${minutes}m`;
 }
 export type Action =
+  | { type: "pedantic"; treeId: string; enabled: boolean }
   | { type: "create"; id: string; title: string }
+  | { type: "isolate"; id: string; treeId: string; title: string }
+  | { type: "color"; id: string; color: string | null }
+  | { type: "fill"; id: string; filled: boolean }
   | { type: "add"; id: string; parentId: string; title: string }
   | {
       type: "edit";
@@ -189,6 +292,7 @@ export type Action =
       estimateMinutes: number;
       notes: string;
     }
+  | { type: "connect"; id: string; parentId: string | null }
   | { type: "move"; id: string; x: number; y: number }
   | { type: "layout"; treeId: string }
   | { type: "delete"; id: string }
@@ -203,7 +307,9 @@ export function layout(state: State, treeId: string): State {
   const children = (id: string): GoalNode[] =>
     nodes.filter((node) => node.parentId === id);
   const weights = new Map<string, number>();
-  const stack: { id: string; depth: number }[] = [{ id: treeId, depth: 0 }];
+  const stack: { id: string; depth: number }[] = nodes
+    .filter((node) => node.parentId === null)
+    .map((node) => ({ id: node.id, depth: node.id === treeId ? 0 : 1 }));
   const order: { id: string; depth: number }[] = [];
   while (stack.length) {
     const entry = stack.pop();
@@ -243,7 +349,20 @@ export function layout(state: State, treeId: string): State {
       offset += share;
     }
   };
-  place(treeId, 0, 90, 920);
+  const components = nodes.filter((node) => node.parentId === null);
+  const totalWeight = components.reduce(
+    (sum, node) => sum + (weights.get(node.id) ?? 1),
+    0,
+  );
+  let componentLeft = 90;
+  for (const component of components) {
+    const width =
+      (920 * (weights.get(component.id) ?? 1)) / Math.max(1, totalWeight);
+    place(component.id, component.id === treeId ? 0 : 1, componentLeft, width);
+    componentLeft += width;
+  }
+  const root = nodes.find((node) => node.id === treeId);
+  positions.set(treeId, { x: root?.x ?? 550, y: root?.y ?? 130 });
   return {
     ...state,
     nodes: state.nodes.map((node) => ({
@@ -256,6 +375,7 @@ export function apply(state: State, action: Action, now: number): State {
   if (
     (action.type === "create" ||
       action.type === "add" ||
+      action.type === "isolate" ||
       action.type === "edit") &&
     !action.title.trim()
   )
@@ -267,10 +387,23 @@ export function apply(state: State, action: Action, now: number): State {
     throw new Error("The estimate must be a nonnegative number of minutes.");
   let next: State = state;
   switch (action.type) {
+    case "pedantic": {
+      if (!state.trees.some((tree) => tree.id === action.treeId))
+        throw new Error("This forest no longer exists.");
+      next = {
+        ...state,
+        trees: state.trees.map((tree) =>
+          tree.id === action.treeId
+            ? { ...tree, pedantic: action.enabled }
+            : tree,
+        ),
+      };
+      break;
+    }
     case "create": {
       const title = action.title.trim();
       if (state.trees.some((tree) => tree.title === title))
-        throw new Error("A tree with this name already exists.");
+        throw new Error("A forest with this name already exists.");
       next = {
         ...state,
         trees: [...state.trees, { id: action.id, title, createdAt: now }],
@@ -284,9 +417,61 @@ export function apply(state: State, action: Action, now: number): State {
             estimateMinutes: 0,
             notes: "",
             x: 550,
-            y: 280,
+            y: 130,
           },
         ],
+      };
+      break;
+    }
+    case "isolate": {
+      if (!state.trees.some((tree) => tree.id === action.treeId))
+        throw new Error("This forest no longer exists.");
+      const isolatedCount = state.nodes.filter(
+        (node) => node.treeId === action.treeId && node.parentId === null,
+      ).length;
+      next = {
+        ...state,
+        nodes: [
+          ...state.nodes,
+          {
+            id: action.id,
+            treeId: action.treeId,
+            parentId: null,
+            title: action.title.trim(),
+            estimateMinutes: 0,
+            notes: "",
+            x: 750 + (isolatedCount % 3) * 80,
+            y: 220 + (isolatedCount % 5) * 75,
+            ...(state.trees.find((tree) => tree.id === action.treeId)?.pedantic
+              ? { color: isolatedColor(state, action.treeId), filled: true }
+              : {}),
+          },
+        ],
+      };
+      break;
+    }
+    case "fill": {
+      requireNode(state, action.id);
+      next = {
+        ...state,
+        nodes: state.nodes.map((node) =>
+          node.id === action.id ? { ...node, filled: action.filled } : node,
+        ),
+      };
+      break;
+    }
+    case "color": {
+      requireNode(state, action.id);
+      next = {
+        ...state,
+        nodes: state.nodes.map((node) => {
+          if (node.id !== action.id) return node;
+          const { color: previousColor, ...rest } = node;
+          void previousColor;
+          return action.color === null
+            ? rest
+            : { ...rest, color: action.color };
+        }),
       };
       break;
     }
@@ -306,6 +491,13 @@ export function apply(state: State, action: Action, now: number): State {
               notes: "",
               x: 550,
               y: 400,
+              ...(state.trees.find((tree) => tree.id === parent.treeId)
+                ?.pedantic
+                ? {
+                    color: assignedNodeColor(state.nodes, parent),
+                    filled: true,
+                  }
+                : {}),
             },
           ],
         },
@@ -342,7 +534,30 @@ export function apply(state: State, action: Action, now: number): State {
       };
       break;
     }
-    case "move":
+    case "connect": {
+      const node = requireNode(state, action.id);
+      if (node.id === node.treeId)
+        throw new Error("The root cannot be reconnected.");
+      if (action.parentId !== null) {
+        const parent = requireNode(state, action.parentId);
+        if (parent.treeId !== node.treeId)
+          throw new Error("Connections must stay within this graph.");
+        if (subtreeIds(state, node.id).has(parent.id))
+          throw new Error("This connection would create a cycle.");
+      }
+      if (state.focus && subtreeIds(state, node.id).has(state.focus.nodeId))
+        throw new Error(
+          "Save or discard the active session before reconnecting this subtree.",
+        );
+      next = {
+        ...state,
+        nodes: state.nodes.map((item) =>
+          item.id === node.id ? { ...item, parentId: action.parentId } : item,
+        ),
+      };
+      break;
+    }
+    case "move": {
       requireNode(state, action.id);
       next = {
         ...state,
@@ -351,14 +566,15 @@ export function apply(state: State, action: Action, now: number): State {
         ),
       };
       break;
+    }
     case "layout":
       next = layout(state, action.treeId);
       break;
     case "complete": {
       const node = requireNode(state, action.id);
-      if (node.parentId === null)
+      if (node.id === node.treeId)
         throw new Error("Only child goals can be finished.");
-      const parentId = node.parentId;
+      const parentId = node.parentId ?? node.treeId;
       const ids = subtreeIds(state, node.id);
       const saved =
         state.focus && ids.has(state.focus.nodeId)
@@ -378,10 +594,17 @@ export function apply(state: State, action: Action, now: number): State {
     }
     case "delete": {
       const node = requireNode(state, action.id);
-      const ids = subtreeIds(state, node.id);
+      const ids =
+        node.id === node.treeId
+          ? new Set(
+              state.nodes
+                .filter((item) => item.treeId === node.treeId)
+                .map((item) => item.id),
+            )
+          : subtreeIds(state, node.id);
       if (state.focus && ids.has(state.focus.nodeId))
         throw new Error(
-          "Save or discard the active session before deleting this branch.",
+          `Save or discard the active session before deleting this ${node.id === node.treeId ? "forest" : "subtree"}.`,
         );
       next = {
         ...state,
@@ -402,7 +625,7 @@ export function apply(state: State, action: Action, now: number): State {
               nodeId: node.id,
               treeId: node.treeId,
               title:
-                node.parentId === null ||
+                node.id === node.treeId ||
                 state.nodes.some((item) => item.parentId === node.id)
                   ? "General"
                   : node.title,

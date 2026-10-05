@@ -1,7 +1,7 @@
-# hiper trees
+# hyperforest
 
-A standalone TypeScript web app for trees of goals. A dark, mathematical graph
-canvas gives each branch a color, each node a play button, and each session room
+A standalone TypeScript web app for forests of goals. A dark, mathematical graph
+canvas gives each vertex a color and each session room
 to breathe. Built with React, SVG, Vite, and strict TypeScript.
 
 ## Run locally
@@ -14,56 +14,92 @@ npm ci
 npm run dev
 ```
 
-Open the printed URL, including `/hipertrees/`. Vite's base path is fixed to
-`/hipertrees/` so the same production build works on GitHub Pages.
+Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
+`/hyperforest/` so the same production build works on GitHub Pages.
 
 ## Use
 
-- Switch trees with the tabs, or create one with **New tree**.
+- Switch forests with the tabs, or create one with **New forest**.
+- Vertices are small filled circles by default, with white names and no action
+  icons. The top menu keeps fixed slots across modes and selections.
+- All vertices, including the distinguished root, can be dragged in edit mode.
+  Drag the bottom-right corner of the graph area downward to make more room.
+- Use **Edit graph** to unlock changes. Select a vertex and use **New vertex** in the top menu to add a child. Drag an edge or its circular handle onto another vertex to change its
+  parent; drop it on empty space to disconnect. A disconnected vertex has a
+  handle above it for reconnecting. The **Parent connection** selector provides
+  the same controls without dragging. Cycles are rejected.
+- **New vertex**, next to **Edit graph** and **pedantic**, creates a child of the selected vertex.
+  Disconnect it using the parent selector to create an independent component.
+  **Vertex color** in the top menu opens the color picker. Its numbered
+  eight filled **Default colors** swatches start with the root's gold, followed by the generated subtree palette. **Fill interior** switches
+  between a filled vertex and a colored boundary without losing its color.
+  Colors and fill settings persist in backups.
+- Click the selected vertex name in the menu to rename it in edit mode.
+  Press Enter or the pencil/checkmark controls to edit and save; Escape cancels.
+- **Clear local data**, beside Import/Export, asks for confirmation before resetting
+  all forests, vertices, notes, and sessions. Export a backup first to keep a copy.
+- **Done editing** freezes vertex positions and connections. Selection, focus,
+  panning and zooming remain available.
+- **pedantic**, on the right of the edit toolbar, requires every vertex color's
+  vertices to induce a connected subtree of the host forest. Hover or focus it for
+  the mathematical definition. Initially assigned colors and boundary-only
+  colors count too; changing the fill setting does not change membership.
+  The setting is saved per forest. Invalid color changes, connections and
+  imports are rejected; existing disconnected color groups must be fixed before
+  enabling it.
 - Select a child and choose **Finish goal** to remove it and its descendants.
   Their time remains credited to the parent and its ancestors; session history
-  keeps the original goal names. Any active session in that branch is saved.
-- Click a node to select it. Drag its circle to rearrange the graph. Drag empty
+  keeps the original goal names. Any active session in that subtree is saved.
+- Click a vertex to select it. Drag its circle to rearrange the graph. Drag empty
   canvas to pan; Ctrl + scroll or use +/− to zoom. Fit resets the view; Arrange lays out
-  the tree again. Adding a node arranges its tree automatically.
-- The play symbol on any node expands it into the focus view and starts the
-  timer. A leaf uses its goal name; an internal node uses the generic task
+  the forest again. Adding a vertex arranges its forest automatically.
+- Double-click a vertex, or select it and choose **Focus** in the top menu, to expand
+  it into the focus view and start the timer. A leaf uses its goal name; an internal vertex uses the generic task
   **General** within that group's path. Escape or **Pause & return** shrinks the
-  node back into the graph. Resume continues the same session. **Save session**
+  vertex back into the graph. Resume continues the same session. **Save session**
   records it; pauses never count as focus time.
-- Add a child or edit the selected node in the right panel. Every node supports
-  an estimate and Markdown notes. Export notes as `Tree - Node.md`; root notes
-  use `Tree.md`.
-- Totals include each node's own sessions and all its descendants, starting at
-  the tree's creation timestamp. Running time appears in those totals too.
-  Renaming preserves attribution. Deleted branches no longer contribute to the
-  remaining tree; their saved sessions stay in history. Deleting the active
-  session's branch is blocked until that session is saved or discarded.
+- Add a child or edit the selected vertex in the compact details menu above the graph. Every vertex supports
+  an estimate and Markdown notes. The document button in the top menu opens
+  the selected vertex's Markdown editor, including outside edit mode. Export notes as `Forest - Vertex.md`; root notes
+  use `Forest.md`.
+- Totals include each vertex's own sessions and all its descendants, starting at
+  the forest's creation timestamp. Running time appears in those totals too.
+  Reconnecting moves a subtree's time to its new ancestors; the main root total
+  also includes disconnected components. Session history keeps the original
+  group names. Renaming preserves attribution. Deleted subtrees no longer contribute to the
+  remaining forest; their saved sessions stay in history. Deleting the active
+  session's subtree is blocked until that session is saved or discarded.
 
 ## Persistent storage
 
-Trees, positions, notes, estimates, saved sessions, and the active timer persist
+Existing data from the former app is migrated to `hyperforest.workspace.v1`
+without deleting the original saved copy.
+
+Forests, positions, notes, estimates, saved sessions, and the active timer persist
 in browser localStorage under a versioned key. Reloading restores the timer;
 a running timer continues while the page is closed. Pause before leaving if you
 want to stop counting. Data stays in this browser profile on this site's origin;
 it does not automatically sync between devices or with the Python CLI/TUI.
 
-**Export** downloads a complete JSON backup. **Import** validates a backup before
+**Export** opens the browser's Save As picker where supported or directly
+downloads a complete JSON backup, without an app dialog. In Firefox, enable
+**Settings → General → Downloads → Always ask you where to save files** to choose
+the destination for each export. **Import** validates a backup before
 replacing the workspace and asks before replacing existing data. Cooperating
 browser tabs use Web Locks to serialize writes and storage events to refresh.
 An edit form opened before another tab changes that goal detects the conflict
 and keeps your draft available instead of overwriting the newer notes.
 Failed storage writes leave the previous visible state intact. Malformed saved
-data opens a recovery screen instead of being silently replaced. The initial
-example is editable and saved locally; delete it whenever you're ready.
+data opens a recovery screen instead of being silently replaced. New workspaces
+start empty.
 
 The app is static: no backend, account, analytics, or external font service.
 
-## Host at ogmutlu.github.io/hipertrees/
+## Host at ogmutlu.github.io/hyperforest/
 
 The `web/` folder is a self-contained project. To deploy at the requested URL:
 
-1. Create the GitHub repository **ogmutlu/hipertrees**.
+1. Create the GitHub repository **ogmutlu/hyperforest**.
 2. Put the **contents** of `web/` at that repository's root, including its hidden
    `.github/workflows/pages.yml`, `package.json`, and `package-lock.json`.
 3. In repository **Settings → Pages → Source**, select **GitHub Actions**.
@@ -74,7 +110,7 @@ production build, and deploys `dist/` to Pages. This checkout's top-level
 `.github/workflows/web.yml` runs checks and Chromium tests for `web/`; it does not
 publish the Python repository at the wrong URL. No deployment has been performed.
 
-You can also serve the contents of `dist/` at `/hipertrees/` on any static host.
+You can also serve the contents of `dist/` at `/hyperforest/` on any static host.
 [Vite's Pages deployment documentation](https://vite.dev/guide/static-deploy.html#github-pages)
 explains the base-path and GitHub Actions configuration.
 
@@ -92,8 +128,8 @@ npm run test:e2e
 Use `CHROMIUM_PATH=/usr/bin/chromium npm run test:e2e` to test with an existing
 Chromium installation. Browser tests exercise real mouse dragging, focus
 expansion/pause, persistence after reload, notes, and mobile layout. Screenshots
-are written to `/tmp/hipertrees-desktop.png`, `/tmp/hipertrees-focus.png`, and
-`/tmp/hipertrees-mobile.png` during those tests.
+are written to `/tmp/hyperforest-desktop.png`, `/tmp/hyperforest-focus.png`, and
+`/tmp/hyperforest-mobile.png` during those tests.
 
 `src/domain.ts` contains validated data and pure transitions; `src/storage.ts`
 handles durable writes; `src/Graph.tsx` owns mouse interaction and graph rendering;

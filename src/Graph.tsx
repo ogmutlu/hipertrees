@@ -1,35 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import type { Action, GoalNode, State } from "./domain";
-import { shortTime } from "./domain";
+import { assignedNodeColor, shortTime } from "./domain";
 import { Icon } from "./icons";
 
-const PALETTE = ["#80c9bc", "#9ca8dc", "#d5aa79", "#b7c894", "#cb99bc"];
 export function nodeColor(state: State, node: GoalNode): string {
-  if (node.parentId === null) return "#dfc491";
-  let ancestor = node;
-  while (ancestor.parentId !== node.treeId && ancestor.parentId !== null) {
-    const parent = state.nodes.find((item) => item.id === ancestor.parentId);
-    if (!parent) break;
-    ancestor = parent;
-  }
-  const siblings = state.nodes.filter((item) => item.parentId === node.treeId);
-  return (
-    PALETTE[
-      Math.max(
-        0,
-        siblings.findIndex((item) => item.id === ancestor.id),
-      ) % PALETTE.length
-    ] ?? "#80c9bc"
-  );
+  return assignedNodeColor(state.nodes, node);
 }
 interface Props {
+  editing: boolean;
   state: State;
   treeId: string;
   selected: string | null;
   time: Map<string, number>;
   select: (id: string) => void;
-  start: (id: string, origin: { x: number; y: number }) => void;
+  start: (id: string, point: { x: number; y: number }) => Promise<void>;
   run: (action: Action) => Promise<boolean>;
 }
 interface Drag {
@@ -41,6 +26,7 @@ interface Drag {
   moved: boolean;
 }
 export function Graph({
+  editing,
   state,
   treeId,
   selected,
@@ -51,6 +37,9 @@ export function Graph({
 }: Props) {
   const svg = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
+  const [link, setLink] = useState<{ id: string; x: number; y: number } | null>(
+    null,
+  );
   const [position, setPosition] = useState<{
     id: string;
     x: number;
@@ -111,6 +100,10 @@ export function Graph({
   ): void => {
     if (event.button !== 0) return;
     event.stopPropagation();
+    if (node && !editing) {
+      select(node.id);
+      return;
+    }
     const point = coordinate(event.clientX, event.clientY);
     drag.current = {
       id: node?.id ?? null,
@@ -120,10 +113,40 @@ export function Graph({
       y: node?.y ?? camera.y,
       moved: false,
     };
-    svg.current?.setPointerCapture(event.pointerId);
     if (node) select(node.id);
   };
+  const linkDown = (
+    event: ReactPointerEvent<SVGElement>,
+    node: GoalNode,
+  ): void => {
+    if (!editing || event.button !== 0) return;
+    event.stopPropagation();
+    const point = coordinate(event.clientX, event.clientY);
+    setLink({
+      id: node.id,
+      x: (point.x - camera.x) / camera.scale,
+      y: (point.y - camera.y) / camera.scale,
+    });
+    svg.current?.setPointerCapture(event.pointerId);
+  };
+  useEffect(() => {
+    if (!editing) {
+      drag.current = null;
+      setPosition(null);
+      setLink(null);
+      setDragging(false);
+    }
+  }, [editing]);
   const move = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    if (link) {
+      const point = coordinate(event.clientX, event.clientY);
+      setLink({
+        ...link,
+        x: (point.x - camera.x) / camera.scale,
+        y: (point.y - camera.y) / camera.scale,
+      });
+      return;
+    }
     const current = drag.current;
     if (!current) return;
     const point = coordinate(event.clientX, event.clientY);
@@ -131,12 +154,13 @@ export function Graph({
       dy = point.y - current.startY;
     if (Math.abs(dx) + Math.abs(dy) > 3) current.moved = true;
     if (!current.moved) return;
+    svg.current?.setPointerCapture(event.pointerId);
     setDragging(true);
     if (current.id)
       setPosition({
         id: current.id,
-        x: Math.min(1040, Math.max(60, current.x + dx / camera.scale)),
-        y: Math.min(660, Math.max(60, current.y + dy / camera.scale)),
+        x: current.x + dx / camera.scale,
+        y: current.y + dy / camera.scale,
       });
     else
       setCamera((previous) => ({
@@ -146,6 +170,14 @@ export function Graph({
       }));
   };
   const up = async (): Promise<void> => {
+    if (link) {
+      const target = nodes.find(
+        (node) => Math.hypot(node.x - link.x, node.y - link.y) <= 48,
+      );
+      setLink(null);
+      await run({ type: "connect", id: link.id, parentId: target?.id ?? null });
+      return;
+    }
     const current = drag.current;
     drag.current = null;
     if (current?.id && current.moved && position)
@@ -153,22 +185,17 @@ export function Graph({
     setPosition(null);
     setDragging(false);
   };
-  const activate = (id: string, element: Element): void => {
-    const rect = element.getBoundingClientRect();
-    start(id, {
-      x: rect.left + rect.width / 2 - window.innerWidth / 2,
-      y: rect.top + rect.height / 2 - window.innerHeight / 2,
-    });
-  };
   return (
-    <div className={`graph ${dragging ? "is-dragging" : ""}`}>
+    <div
+      className={`graph ${editing ? "editing" : "frozen"} ${dragging ? "is-dragging" : ""}`}
+    >
       <div className="canvas-grain" />
       <svg
         ref={svg}
         className="graph-svg"
         viewBox="0 0 1100 720"
         preserveAspectRatio={compact ? "xMidYMid slice" : "xMidYMid meet"}
-        aria-label="Draggable goal tree"
+        aria-label="Goal forest"
         onPointerDown={(event) => down(event)}
         onPointerMove={move}
         onPointerUp={() => {
@@ -177,6 +204,7 @@ export function Graph({
         onPointerCancel={() => {
           drag.current = null;
           setPosition(null);
+          setLink(null);
           setDragging(false);
         }}
       >
@@ -201,9 +229,37 @@ export function Graph({
             const parent = nodes.find((item) => item.id === node.parentId);
             if (!parent) return null;
             const color = nodeColor(state, node);
-            const d = `M${parent.x},${parent.y + 30} C${parent.x},${(parent.y + node.y) / 2} ${node.x},${(parent.y + node.y) / 2} ${node.x},${node.y - 30}`;
+            const d = `M${parent.x},${parent.y + (parent.id === treeId ? 24 : 18)} C${parent.x},${(parent.y + node.y) / 2} ${node.x},${(parent.y + node.y) / 2} ${node.x},${node.y - (node.id === treeId ? 24 : 18)}`;
             return (
-              <g key={`edge-${node.id}`} className="edge">
+              <g
+                key={`edge-${node.id}`}
+                className="edge"
+                data-testid={`edge-${node.id}`}
+                onPointerDown={(event) => linkDown(event, node)}
+              >
+                {editing && (
+                  <>
+                    <path
+                      d={d}
+                      stroke="transparent"
+                      strokeWidth="18"
+                      fill="none"
+                      className="edge-handle"
+                      onPointerDown={(event) => linkDown(event, node)}
+                    />
+                    <circle
+                      cx={(parent.x + node.x) / 2}
+                      cy={(parent.y + node.y) / 2}
+                      r="8"
+                      fill="#101820"
+                      stroke={color}
+                      strokeWidth="2"
+                      className="edge-handle"
+                      data-testid={`edge-handle-${node.id}`}
+                      onPointerDown={(event) => linkDown(event, node)}
+                    />
+                  </>
+                )}
                 <path
                   d={d}
                   stroke={color}
@@ -222,16 +278,29 @@ export function Graph({
               </g>
             );
           })}
+          {link &&
+            (() => {
+              const child = nodes.find((node) => node.id === link.id);
+              return child ? (
+                <path
+                  d={`M${link.x},${link.y} L${child.x},${child.y}`}
+                  stroke="#dfc491"
+                  strokeWidth="2"
+                  strokeDasharray="6 5"
+                  pointerEvents="none"
+                />
+              ) : null;
+            })()}
           {nodes.map((node) => {
             const color = nodeColor(state, node);
             const isActive = state.focus?.nodeId === node.id;
-            const hasChildren = nodes.some((item) => item.parentId === node.id);
-            const radius = node.parentId === null ? 39 : 31;
+
+            const radius = node.id === treeId ? 24 : 18;
             return (
               <g
                 key={node.id}
                 transform={`translate(${node.x} ${node.y})`}
-                className={`goal ${selected === node.id ? "selected" : ""} ${isActive ? "active" : ""}`}
+                className={`goal ${node.id === treeId ? "root-goal" : ""} ${selected === node.id ? "selected" : ""} ${isActive ? "active" : ""}`}
                 data-testid={`node-${node.id}`}
               >
                 <g
@@ -239,6 +308,13 @@ export function Graph({
                   tabIndex={0}
                   aria-label={`Select ${node.title}`}
                   onPointerDown={(event) => down(event, node)}
+                  onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    void start(node.id, {
+                      x: event.clientX - innerWidth / 2,
+                      y: event.clientY - innerHeight / 2,
+                    });
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
@@ -246,6 +322,14 @@ export function Graph({
                     }
                   }}
                 >
+                  {node.id === treeId && (
+                    <circle
+                      r={radius + 5}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth="2"
+                    />
+                  )}
                   <circle
                     r={radius + 13}
                     className="node-aura"
@@ -262,7 +346,8 @@ export function Graph({
                   />
                   <circle
                     r={radius}
-                    fill="#101820"
+                    data-testid={`node-fill-${node.id}`}
+                    fill={node.filled ? color : "#101820"}
                     stroke={color}
                     strokeWidth={selected === node.id ? "2" : "1.4"}
                   />
@@ -273,32 +358,18 @@ export function Graph({
                     opacity=".16"
                     strokeWidth=".7"
                   />
-                  {hasChildren || node.parentId === null ? (
-                    <g stroke={color} fill="#101820" strokeWidth="1.2">
-                      <path d="M0-6-8 7M0-6 8 7" />
-                      <circle cy="-8" r="3" />
-                      <circle cx="-9" cy="9" r="3" />
-                      <circle cx="9" cy="9" r="3" />
-                    </g>
-                  ) : (
-                    <path
-                      d="M0-7 2-2 7 0 2 2 0 7-2 2-7 0-2-2Z"
-                      fill={color}
-                      opacity=".9"
-                    />
-                  )}
                   <text
-                    y={radius + 29}
+                    y={radius + 23}
                     textAnchor="middle"
                     className="node-title"
-                    fill={color}
+                    fill="#ffffff"
                   >
                     {node.title.length > 23
                       ? `${node.title.slice(0, 22)}…`
                       : node.title}
                   </text>
                   <text
-                    y={radius + 49}
+                    y={radius + 40}
                     textAnchor="middle"
                     className="node-time"
                   >
@@ -308,43 +379,25 @@ export function Graph({
                       : " focused"}
                   </text>
                 </g>
-                <g
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${isActive ? "Resume" : "Start"} focus on ${node.title}`}
-                  className="node-play"
-                  transform={`translate(${radius * 0.8} ${radius * 0.65})`}
-                  onPointerDown={(event) => event.stopPropagation()}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    activate(node.id, event.currentTarget);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      activate(node.id, event.currentTarget);
-                    }
-                  }}
-                >
+                {editing && node.id !== treeId && node.parentId === null && (
                   <circle
-                    r="13"
-                    fill={color}
-                    stroke="#0b1017"
-                    strokeWidth="3"
+                    cx="0"
+                    cy={-radius - 10}
+                    r="8"
+                    fill="#101820"
+                    stroke={color}
+                    strokeWidth="2"
+                    className="edge-handle"
+                    data-testid={`edge-handle-${node.id}`}
+                    onPointerDown={(event) => linkDown(event, node)}
                   />
-                  <path d="m-3-4 7 4-7 4Z" fill="#111a20" />
-                </g>
+                )}
               </g>
             );
           })}
         </g>
       </svg>
-      <div className="graph-caption">
-        <span className="tiny-star">✦</span> Every small step belongs to
-        something bigger.
-      </div>
       <div className="canvas-controls">
-        <span>Drag nodes · Ctrl + scroll to zoom</span>
         <button
           className="icon-button"
           aria-label="Zoom out"
@@ -378,7 +431,8 @@ export function Graph({
         </button>
         <button
           className="icon-button"
-          aria-label="Arrange nodes"
+          aria-label="Arrange vertices"
+          disabled={!editing}
           onClick={() => {
             setCamera(fitCamera(compact));
             void run({ type: "layout", treeId });

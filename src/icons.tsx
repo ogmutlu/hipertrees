@@ -5,6 +5,7 @@ export type IconName =
   | "plus"
   | "close"
   | "notes"
+  | "pencil"
   | "arrow"
   | "download"
   | "upload"
@@ -27,6 +28,7 @@ export function Icon({
     plus: "M12 5v14M5 12h14",
     close: "m6 6 12 12M18 6 6 18",
     notes: "M6 3h9l4 4v14H6ZM14 3v5h5M9 12h7M9 16h5",
+    pencil: "m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14Z",
     arrow: "M5 12h14m-6-6 6 6-6 6",
     download: "M12 3v12m-5-5 5 5 5-5M5 16v5h14v-5",
     upload: "M12 16V4m-5 5 5-5 5 5M5 16v5h14v-5",

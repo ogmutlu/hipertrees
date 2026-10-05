@@ -1,2 +1,2 @@
 import { defineConfig } from "vite";
-export default defineConfig({ base: "/hipertrees/" });
+export default defineConfig({ base: "/hyperforest/" });

@@ -8,9 +8,9 @@ import {
 } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import {
+  DEFAULT_COLORS,
   focusElapsed,
   formatTime,
-  nodePath,
   shortTime,
   subtreeIds,
   totals,
@@ -18,7 +18,12 @@ import {
 import type { Action, GoalNode, State } from "./domain";
 import { Graph, nodeColor } from "./Graph";
 import { Icon } from "./icons";
-import { transact, Workspace } from "./storage";
+import {
+  LEGACY_STORAGE_KEY,
+  STORAGE_KEY,
+  transact,
+  Workspace,
+} from "./storage";
 
 function download(name: string, text: string, type = "application/json"): void {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -27,6 +32,36 @@ function download(name: string, text: string, type = "application/json"): void {
   link.download = name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+interface SaveWindow extends Window {
+  showSaveFilePicker?: (options: {
+    suggestedName: string;
+    types: { description: string; accept: Record<string, string[]> }[];
+  }) => Promise<FileSystemFileHandle>;
+}
+async function exportBackup(name: string, contents: string): Promise<void> {
+  const picker = (window as SaveWindow).showSaveFilePicker;
+  if (!picker) {
+    download(name, contents);
+    return;
+  }
+  const file = await picker.call(window, {
+    suggestedName: name,
+    types: [
+      {
+        description: "hyperforest backup",
+        accept: { "application/json": [".json"] },
+      },
+    ],
+  });
+  const stream = await file.createWritable();
+  try {
+    await stream.write(contents);
+    await stream.close();
+  } catch (error: unknown) {
+    await stream.abort().catch(() => {});
+    throw error;
+  }
 }
 const ErrorContext = createContext("");
 
@@ -70,12 +105,110 @@ function Dialog({
     </dialog>
   );
 }
+function NodeName({
+  node,
+  editing,
+  busy,
+  run,
+}: {
+  node: GoalNode;
+  editing: boolean;
+  busy: boolean;
+  run: (action: Action) => Promise<boolean>;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(node.title);
+  const original = useRef(node);
+  useEffect(() => {
+    if (!editing) setRenaming(false);
+  }, [editing]);
+  if (!renaming)
+    return (
+      <h2 className="node-heading">
+        <button
+          className="rename-name"
+          aria-label="Rename selected vertex"
+          disabled={!editing || busy}
+          onClick={() => {
+            original.current = node;
+            setName(node.title);
+            setRenaming(true);
+          }}
+        >
+          {node.title}
+          <Icon
+            name="pencil"
+            size={14}
+            style={{ visibility: editing ? "visible" : "hidden" }}
+          />
+        </button>
+      </h2>
+    );
+  return (
+    <form
+      className="inline-rename"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const snapshot = original.current;
+        void run({
+          type: "edit",
+          id: snapshot.id,
+          title: name,
+          notes: snapshot.notes,
+          estimateMinutes: snapshot.estimateMinutes,
+          expected: {
+            title: snapshot.title,
+            notes: snapshot.notes,
+            estimateMinutes: snapshot.estimateMinutes,
+          },
+        }).then((success) => {
+          if (success) setRenaming(false);
+        });
+      }}
+    >
+      <input
+        autoFocus
+        aria-label="Vertex name"
+        required
+        maxLength={100}
+        value={name}
+        disabled={busy}
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setRenaming(false);
+          }
+        }}
+      />
+      <button
+        type="submit"
+        className="icon-button"
+        aria-label="Save vertex name"
+        disabled={busy}
+      >
+        <Icon name="check" />
+      </button>
+      <button
+        type="button"
+        className="icon-button"
+        aria-label="Cancel rename"
+        onClick={() => setRenaming(false)}
+      >
+        <Icon name="close" />
+      </button>
+    </form>
+  );
+}
+
 function EditDialog({
   state,
   node,
   close,
   run,
+  editing,
 }: {
+  editing: boolean;
   state: State;
   node: GoalNode;
   close: () => void;
@@ -105,7 +238,7 @@ function EditDialog({
       close();
   };
   const filename =
-    `${tree?.title ?? "Tree"}${node.parentId === null ? "" : ` - ${title}`}.md`.replaceAll(
+    `${tree?.title ?? "Forest"}${node.id === node.treeId ? "" : ` - ${title}`}.md`.replaceAll(
       "/",
       "-",
     );
@@ -122,6 +255,7 @@ function EditDialog({
           Goal name
           <input
             autoFocus
+            disabled={!editing}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             maxLength={100}
@@ -132,6 +266,7 @@ function EditDialog({
           Time estimate <span>(minutes, optional)</span>
           <input
             type="number"
+            disabled={!editing}
             min="0"
             step="any"
             value={estimate}
@@ -182,8 +317,17 @@ export function App({ workspace }: { workspace: Workspace }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [dialog, setDialog] = useState<
-    "tree" | "child" | "edit" | "delete" | "complete" | "history" | null
+    | "tree"
+    | "child"
+    | "color"
+    | "edit"
+    | "delete"
+    | "complete"
+    | "history"
+    | "clear"
+    | null
   >(null);
+  const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState("");
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
@@ -242,8 +386,8 @@ export function App({ workspace }: { workspace: Workspace }) {
     const frame = requestAnimationFrame(() => setExpanded(running));
     document.title =
       running && focusNode
-        ? `${focusNode.title} · ${formatTime(focusElapsed(focus, Date.now()))} — hiper trees`
-        : "hiper trees — a little structure";
+        ? `${focusNode.title} · ${formatTime(focusElapsed(focus, Date.now()))} — hyperforest`
+        : "hyperforest — a little structure";
     return () => cancelAnimationFrame(frame);
   }, [running, focusNode, focus]);
   const start = async (
@@ -302,25 +446,44 @@ export function App({ workspace }: { workspace: Workspace }) {
     <ErrorContext.Provider value={error}>
       <main>
         <header className="topbar">
-          <a className="brand" href="./" aria-label="hiper trees home">
+          <a className="brand" href="./" aria-label="hyperforest home">
             <span className="brand-icon">
               <Icon name="tree" size={21} />
             </span>
-            hiper<span className="brand-separator">/</span>
-            <span className="brand-sub">trees</span>
+            hyperforest
           </a>
           <div className="top-actions">
-            <span className="saved-state">
+            <button
+              className="quiet-button"
+              onClick={() => setDialog("history")}
+            >
+              Session history
+            </button>
+            <span className="saved-state" role="status">
               <i /> Saved on this device
             </span>
             <button
               className="quiet-button"
-              onClick={() =>
-                download(
-                  "hipertrees-backup.json",
-                  JSON.stringify(state, null, 2),
+              onClick={() => {
+                setBusy(true);
+                void exportBackup(
+                  "hyperforest-backup.json",
+                  JSON.stringify(workspace.getSnapshot(), null, 2),
                 )
-              }
+                  .then(() => setError(""))
+                  .catch((exception: unknown) => {
+                    if (!(
+                      exception instanceof DOMException &&
+                      exception.name === "AbortError"
+                    ))
+                      setError(
+                        exception instanceof Error
+                          ? exception.message
+                          : "Could not export the backup.",
+                      );
+                  })
+                  .finally(() => setBusy(false));
+              }}
             >
               <Icon name="download" /> Export
             </button>
@@ -342,9 +505,16 @@ export function App({ workspace }: { workspace: Workspace }) {
                 event.target.value = "";
               }}
             />
+            <button
+              className="quiet-button danger"
+              disabled={busy}
+              onClick={() => setDialog("clear")}
+            >
+              <Icon name="trash" /> Clear local data
+            </button>
           </div>
         </header>
-        <nav className="tree-tabs" role="tablist" aria-label="Goal trees">
+        <nav className="tree-tabs" role="tablist" aria-label="Goal forests">
           {state.trees.map((item) => (
             <button
               key={item.id}
@@ -371,51 +541,49 @@ export function App({ workspace }: { workspace: Workspace }) {
               setDialog("tree");
             }}
           >
-            <Icon name="plus" size={16} /> New tree
+            <Icon name="plus" size={16} /> New forest
           </button>
         </nav>
         {tree && node ? (
           <div className="workspace">
-            <section className="map-panel">
-              <div className="map-heading">
-                <div className="eyebrow">THE BIG PICTURE</div>
-                <h2>{tree.title}</h2>
-                <p>
-                  Growing since{" "}
-                  {new Date(tree.createdAt).toLocaleDateString(undefined, {
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                  })}
-                  <span>·</span>
-                  {shortTime(time.get(tree.id) ?? 0)} together
-                </p>
-              </div>
-              <Graph
-                key={tree.id}
-                state={state}
-                treeId={tree.id}
-                selected={node.id}
-                time={time}
-                select={setSelected}
-                start={(id, point) => {
-                  void start(id, point);
-                }}
-                run={run}
-              />
-            </section>
             <aside
               className="inspector"
+              data-editing={editing}
               style={{ "--node-color": color } as CSSProperties}
             >
-              <div className="inspector-top">
-                <span className="eyebrow">
-                  {node.parentId === null
-                    ? "THE ROOT"
-                    : children.length
-                      ? "A BRANCH"
-                      : "YOUR NEXT STEP"}
-                </span>
+              <div className="inspector-summary">
+                <NodeName
+                  key={node.id}
+                  node={node}
+                  editing={editing}
+                  busy={busy}
+                  run={run}
+                />
+                <div className="time-stat">
+                  <span>{shortTime(time.get(node.id) ?? 0)}</span>
+                  <div>
+                    TIME GIVEN
+                    {node.estimateMinutes > 0 && (
+                      <small>
+                        of {shortTime(node.estimateMinutes * 60000)}
+                      </small>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="primary-button start-button"
+                  disabled={busy}
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    void start(node.id, {
+                      x: rect.left - innerWidth / 2,
+                      y: rect.top - innerHeight / 2,
+                    });
+                  }}
+                >
+                  <Icon name="play" size={16} />
+                  Focus
+                </button>
                 <button
                   className="icon-button"
                   aria-label="Edit goal"
@@ -425,76 +593,125 @@ export function App({ workspace }: { workspace: Workspace }) {
                   <Icon name="notes" />
                 </button>
               </div>
-              <div className="inspector-symbol">
-                <Icon
-                  name={
-                    children.length || node.parentId === null ? "tree" : "play"
-                  }
-                  size={25}
-                />
-              </div>
-              <h2>{node.title}</h2>
-              <p className="node-breadcrumb">{nodePath(state, node.id)}</p>
-              <div className="time-stat">
-                <span>{shortTime(time.get(node.id) ?? 0)}</span>
-                <div>
-                  TIME GIVEN TO THIS {children.length ? "BRANCH" : "GOAL"}
-                  {node.estimateMinutes > 0 && (
-                    <small>
-                      of {shortTime(node.estimateMinutes * 60000)} estimated
-                    </small>
-                  )}
-                </div>
-              </div>
-              {node.estimateMinutes > 0 && (
-                <div className="progress-track">
-                  <div
-                    style={{
-                      width: `${Math.min(100, ((time.get(node.id) ?? 0) / (node.estimateMinutes * 60000)) * 100)}%`,
-                    }}
-                  />
-                </div>
-              )}
-              <button
-                className="primary-button start-button"
-                disabled={busy}
-                onClick={(event) => {
-                  const rect = event.currentTarget.getBoundingClientRect();
-                  void start(node.id, {
-                    x: rect.left - innerWidth / 2,
-                    y: rect.top - innerHeight / 2,
-                  });
-                }}
-              >
-                <Icon name="play" size={16} />
-                {focus?.nodeId === node.id
-                  ? "Resume focus"
-                  : "Focus on this step"}
-                <span>↗</span>
-              </button>
-              <p className="focus-hint">
-                {children.length || node.parentId === null
-                  ? "An open-ended session for this whole group."
-                  : "One thing at a time. Everything else can wait."}
-              </p>
-              <div className="inspector-rule" />
-              <div className="section-heading">
-                <span>SMALLER STEPS</span>
+              <div className="inspector-actions">
                 <button
-                  className="icon-button"
-                  aria-label="Add child goal"
-                  disabled={busy}
+                  className="quiet-button"
+                  aria-label="Vertex color"
+                  disabled={busy || !editing}
+                  onClick={() => setDialog("color")}
+                >
+                  Vertex color
+                </button>
+                <label className="connection-select">
+                  Parent
+                  <select
+                    aria-label="Parent connection"
+                    disabled={busy || !editing || node.id === node.treeId}
+                    value={node.parentId ?? ""}
+                    onChange={(event) => {
+                      void run({
+                        type: "connect",
+                        id: node.id,
+                        parentId: event.target.value || null,
+                      });
+                    }}
+                  >
+                    <option value="">
+                      {node.id === node.treeId ? "Root" : "Disconnected"}
+                    </option>
+                    {state.nodes
+                      .filter(
+                        (item) =>
+                          item.treeId === node.treeId &&
+                          !subtreeIds(state, node.id).has(item.id),
+                      )
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.title}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <button
+                  className="quiet-button"
+                  disabled={busy || !editing || node.id === node.treeId}
+                  onClick={() => setDialog("complete")}
+                >
+                  <Icon name="check" size={16} />
+                  Finish goal
+                </button>
+                <button
+                  className="icon-button danger"
+                  aria-label={
+                    node.id === node.treeId ? "Delete forest" : "Delete subtree"
+                  }
+                  disabled={!editing || busy}
+                  onClick={() => setDialog("delete")}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              </div>
+              <div className="edit-toolbar">
+                <button
+                  className="quiet-button"
+                  aria-pressed={editing}
+                  onClick={() => setEditing((value) => !value)}
+                >
+                  <Icon name={editing ? "check" : "pencil"} />{" "}
+                  {editing ? "Done editing" : "Edit graph"}
+                </button>
+                <button
+                  className="quiet-button"
+                  disabled={!editing || busy}
                   onClick={() => {
                     setNewName("");
                     setDialog("child");
                   }}
                 >
-                  <Icon name="plus" size={17} />
+                  <Icon name="plus" /> New vertex
                 </button>
+                <div className="pedantic-control">
+                  <button
+                    className="quiet-button pedantic-toggle"
+                    role="switch"
+                    aria-label="pedantic"
+                    aria-checked={tree.pedantic ?? false}
+                    aria-describedby="pedantic-definition"
+                    disabled={busy}
+                    onClick={() => {
+                      void run({
+                        type: "pedantic",
+                        treeId: tree.id,
+                        enabled: !tree.pedantic,
+                      });
+                    }}
+                  >
+                    <span className="toggle-track" aria-hidden="true">
+                      <i />
+                    </span>
+                    pedantic
+                  </button>
+                  <div
+                    id="pedantic-definition"
+                    role="tooltip"
+                    className="pedantic-tooltip"
+                  >
+                    <p>
+                      A hypertree is a hypergraph with a host tree in which each
+                      hyperedge is the vertex set of a connected subtree. A
+                      hyperforest consists of disjoint hypertrees.
+                    </p>
+                    <p>
+                      Here, each vertex color defines a hyperedge, including the
+                      initially assigned colors. In pedantic mode, all vertices
+                      with the same color must form one connected subtree.
+                    </p>
+                  </div>
+                </div>
               </div>
-              {children.length ? (
-                <div className="child-list">
-                  {children.map((child) => (
+              <div className="child-list" aria-label="Child vertices">
+                {children.length ? (
+                  children.map((child) => (
                     <button
                       key={child.id}
                       onClick={() => setSelected(child.id)}
@@ -505,48 +722,32 @@ export function App({ workspace }: { workspace: Workspace }) {
                       />
                       <span>{child.title}</span>
                       <small>{shortTime(time.get(child.id) ?? 0)}</small>
-                      <Icon name="arrow" size={14} />
                     </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="empty-note">
-                  Small enough to begin?
-                  <br />
-                  Or break it into a few smaller steps.
-                </p>
-              )}
-              <div className="inspector-footer">
-                {node.parentId !== null && (
-                  <button
-                    className="quiet-button"
-                    disabled={busy}
-                    onClick={() => setDialog("complete")}
-                  >
-                    <Icon name="check" size={16} /> Finish goal
-                  </button>
+                  ))
+                ) : (
+                  <span className="no-children">No child vertices</span>
                 )}
-                <button
-                  className="quiet-button"
-                  onClick={() => setDialog("history")}
-                >
-                  Session history
-                </button>
-                <button
-                  className="icon-button danger"
-                  aria-label="Delete selected branch"
-                  onClick={() => setDialog("delete")}
-                >
-                  <Icon name="trash" size={16} />
-                </button>
               </div>
             </aside>
+            <section className="map-panel">
+              <Graph
+                key={tree.id}
+                editing={editing}
+                state={state}
+                treeId={tree.id}
+                selected={node.id}
+                time={time}
+                select={setSelected}
+                start={start}
+                run={run}
+              />
+            </section>
           </div>
         ) : (
           <section className="empty-workspace">
             <Icon name="tree" size={64} />
-            <h2>Every tree starts with one idea.</h2>
-            <p>Give yours a name. You can find the branches as you go.</p>
+            <h2>Every forest starts with one idea.</h2>
+            <p>Give yours a name. You can find the vertices as you go.</p>
             <button
               className="primary-button"
               onClick={() => {
@@ -561,7 +762,7 @@ export function App({ workspace }: { workspace: Workspace }) {
         <footer className="page-footer">
           <span>Less overwhelm. More intention.</span>
           <span>
-            hiper trees <i>✦</i> a space to grow
+            hyperforest <i>✦</i> a space to grow
           </span>
         </footer>
         {focus && focusNode && (
@@ -674,7 +875,7 @@ export function App({ workspace }: { workspace: Workspace }) {
         {(dialog === "tree" || dialog === "child") && (
           <Dialog
             close={() => setDialog(null)}
-            label={dialog === "tree" ? "Create tree" : "Add child goal"}
+            label={dialog === "tree" ? "Create forest" : "Add child goal"}
           >
             <div className="eyebrow">
               {dialog === "tree"
@@ -684,7 +885,7 @@ export function App({ workspace }: { workspace: Workspace }) {
             <h2>
               {dialog === "tree"
                 ? "What are you working toward?"
-                : `A new branch of ${node?.title ?? "your goal"}.`}
+                : `A new child of ${node?.title ?? "your goal"}.`}
             </h2>
             <form
               onSubmit={(event) => {
@@ -692,7 +893,7 @@ export function App({ workspace }: { workspace: Workspace }) {
               }}
             >
               <label>
-                {dialog === "tree" ? "Tree name" : "Goal name"}
+                {dialog === "tree" ? "Forest name" : "Goal name"}
                 <input
                   autoFocus
                   required
@@ -707,29 +908,101 @@ export function App({ workspace }: { workspace: Workspace }) {
                 />
               </label>
               <button className="primary-button" type="submit" disabled={busy}>
-                {dialog === "tree" ? "Create tree" : "Add step"}
+                {dialog === "tree" ? "Create forest" : "Add step"}
                 <Icon name="plus" />
               </button>
             </form>
+          </Dialog>
+        )}
+        {dialog === "color" && editing && node && (
+          <Dialog close={() => setDialog(null)} label="Choose vertex color">
+            <h2>Color “{node.title}”</h2>
+            <section className="default-colors" aria-label="Default colors">
+              <h3>Default colors</h3>
+              <div>
+                {DEFAULT_COLORS.map((swatch, index) => (
+                  <button
+                    key={swatch}
+                    className="color-swatch"
+                    aria-label={`Default color ${index + 1}`}
+                    aria-pressed={color === swatch}
+                    title={swatch}
+                    style={{
+                      background: swatch,
+                      borderColor: swatch,
+                      color: "#101820",
+                    }}
+                    disabled={busy}
+                    onClick={() => {
+                      void run({ type: "color", id: node.id, color: swatch });
+                    }}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+            </section>
+            <div className="node-color-control">
+              <label>
+                Vertex color{" "}
+                <input
+                  aria-label="Vertex color"
+                  type="color"
+                  value={node.color ?? color}
+                  disabled={busy}
+                  onChange={(event) => {
+                    void run({
+                      type: "color",
+                      id: node.id,
+                      color: event.target.value,
+                    });
+                  }}
+                />
+              </label>
+              <button
+                className="quiet-button pedantic-toggle"
+                role="switch"
+                aria-label="Fill interior"
+                aria-checked={node.filled ?? false}
+                disabled={busy}
+                onClick={() => {
+                  void run({ type: "fill", id: node.id, filled: !node.filled });
+                }}
+              >
+                <span className="toggle-track" aria-hidden="true">
+                  <i />
+                </span>
+                Fill interior
+              </button>
+            </div>
+            <div className="dialog-actions">
+              <button
+                className="primary-button"
+                onClick={() => setDialog(null)}
+              >
+                Done
+              </button>
+            </div>
           </Dialog>
         )}
         {dialog === "edit" && node && (
           <EditDialog
             state={state}
             node={node}
+            editing={editing}
             close={() => setDialog(null)}
             run={run}
           />
         )}
-        {dialog === "complete" && node && node.parentId !== null && (
+        {dialog === "complete" && node && node.id !== node.treeId && (
           <Dialog close={() => setDialog(null)} label="Finish goal">
             <div className="eyebrow">ONE STEP COMPLETE</div>
             <h2>Finish “{node.title}”?</h2>
             <p>
-              This removes this goal and its children from the tree. Their time
-              stays in the parent and all its ancestors, and saved sessions stay
-              in history. Any active session in this branch will be saved.
-              Export a backup first to keep the notes.
+              This removes the subtree rooted at this vertex. Its time stays in
+              the parent and all its ancestors, and saved sessions stay in
+              history. Any active session in this subtree will be saved. Export
+              a backup first to keep the notes.
             </p>
             <div className="dialog-actions">
               <button className="quiet-button" onClick={() => setDialog(null)}>
@@ -746,7 +1019,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                   }).then((success) => {
                     if (success) {
                       setDialog(null);
-                      setSelected(node.parentId);
+                      setSelected(node.parentId ?? node.treeId);
                     }
                   });
                 }}
@@ -757,13 +1030,23 @@ export function App({ workspace }: { workspace: Workspace }) {
           </Dialog>
         )}
         {dialog === "delete" && node && (
-          <Dialog close={() => setDialog(null)} label="Delete branch">
+          <Dialog
+            close={() => setDialog(null)}
+            label={node.id === node.treeId ? "Delete forest" : "Delete subtree"}
+          >
             <div className="eyebrow">MAKE A LITTLE ROOM</div>
             <h2>Remove “{node.title}”?</h2>
             <p>
-              This removes {subtreeIds(state, node.id).size} node(s) including
-              its children. Saved sessions stay in history. Export a backup
-              first to keep the notes.
+              {node.id === node.treeId
+                ? "This removes the entire forest, including disconnected subtrees."
+                : "This removes the subtree rooted at this vertex, including all descendants."}{" "}
+              Vertices removed:{" "}
+              {node.id === node.treeId
+                ? state.nodes.filter((item) => item.treeId === node.treeId)
+                    .length
+                : subtreeIds(state, node.id).size}
+              . Saved sessions stay in history. Export a backup first to keep
+              the notes.
             </p>
             <div className="dialog-actions">
               <button className="quiet-button" onClick={() => setDialog(null)}>
@@ -781,7 +1064,51 @@ export function App({ workspace }: { workspace: Workspace }) {
                   });
                 }}
               >
-                Remove branch
+                {node.id === node.treeId ? "Remove forest" : "Remove subtree"}
+              </button>
+            </div>
+          </Dialog>
+        )}
+        {dialog === "clear" && (
+          <Dialog close={() => setDialog(null)} label="Clear local data">
+            <h2>Clear everything on this device?</h2>
+            <p>
+              This permanently deletes all forests, vertices, notes, saved
+              sessions, and any active focus session from this browser. Export a
+              backup first if you want to keep your work.
+            </p>
+            <div className="dialog-actions">
+              <button
+                className="quiet-button"
+                disabled={busy}
+                onClick={() => setDialog(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true);
+                  void transact(() => workspace.clear())
+                    .then(() => {
+                      setTreeId("");
+                      setSelected(null);
+                      setEditing(false);
+                      setError("");
+                      setDialog(null);
+                    })
+                    .catch((exception: unknown) => {
+                      setError(
+                        exception instanceof Error
+                          ? exception.message
+                          : "Could not clear local data.",
+                      );
+                    })
+                    .finally(() => setBusy(false));
+                }}
+              >
+                Delete all local data
               </button>
             </div>
           </Dialog>
@@ -840,8 +1167,10 @@ export function Recovery({ error }: { error: unknown }) {
         className="primary-button"
         onClick={() =>
           download(
-            "hipertrees-recovery.json",
-            localStorage.getItem("hipertrees.workspace.v1") ?? "",
+            "hyperforest-recovery.json",
+            localStorage.getItem(STORAGE_KEY) ??
+              localStorage.getItem(LEGACY_STORAGE_KEY) ??
+              "",
           )
         }
       >
@@ -853,7 +1182,8 @@ export function Recovery({ error }: { error: unknown }) {
           if (
             confirm("Reset local storage? Download your stored data first.")
           ) {
-            localStorage.removeItem("hipertrees.workspace.v1");
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
             location.reload();
           }
         }}
