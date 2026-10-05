@@ -150,4 +150,5 @@ Enable **Multiple colors** in the vertex color menu to select several default or
 custom colors. Filled vertices show colored sectors; outlined vertices show
 colored arcs. Turning the toggle off keeps the first color. Pedantic checks every
 color independently, so a vertex can belong to several overlapping hyperedges.
-Children inherit all their parent’s colors when pedantic is enabled.
+Each new child of the root receives the next default subtree color. Deeper
+vertices inherit all their parent’s colors, with pedantic on or off.

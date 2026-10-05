@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apply,
+  DEFAULT_COLORS,
   assignedNodeColors,
   focusElapsed,
   stateSchema,
@@ -685,6 +686,16 @@ describe("multiple vertex colors", () => {
     );
     state = apply(
       state,
+      { type: "multipleColors", id: "middle", enabled: true },
+      1003,
+    );
+    state = apply(
+      state,
+      { type: "colors", id: "middle", colors: ["#abcdef", "#123456"] },
+      1003,
+    );
+    state = apply(
+      state,
       { type: "add", id: "leaf", parentId: "middle", title: "Leaf" },
       1004,
     );
@@ -713,4 +724,60 @@ describe("multiple vertex colors", () => {
       apply(state, { type: "colors", id: "middle", colors: ["#abcdef"] }, 1007),
     ).not.toThrow();
   });
+});
+
+it("assigns root children successive palette colors and descendants inherit in either mode", () => {
+  for (const pedantic of [true, false]) {
+    let state = apply(
+      empty(),
+      { type: "create", id: "root", title: "Work" },
+      1000,
+    );
+    state = apply(
+      state,
+      { type: "pedantic", treeId: "root", enabled: pedantic },
+      1001,
+    );
+    for (let index = 1; index < DEFAULT_COLORS.length; index++) {
+      state = apply(
+        state,
+        {
+          type: "add",
+          id: `child-${index}`,
+          parentId: "root",
+          title: `Child ${index}`,
+        },
+        1002,
+      );
+      expect(
+        state.nodes.find((node) => node.id === `child-${index}`)?.color,
+      ).toBe(DEFAULT_COLORS[index]);
+    }
+    state = apply(
+      state,
+      { type: "multipleColors", id: "child-1", enabled: true },
+      1003,
+    );
+    state = apply(
+      state,
+      { type: "colors", id: "child-1", colors: [DEFAULT_COLORS[1], "#123456"] },
+      1004,
+    );
+    state = apply(
+      state,
+      {
+        type: "add",
+        id: "grandchild",
+        parentId: "child-1",
+        title: "Grandchild",
+      },
+      1005,
+    );
+    expect(
+      assignedNodeColors(
+        state.nodes,
+        state.nodes.find((node) => node.id === "grandchild")!,
+      ),
+    ).toEqual([DEFAULT_COLORS[1], "#123456"]);
+  }
 });

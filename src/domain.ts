@@ -552,19 +552,27 @@ export function apply(state: State, action: Action, now: number): State {
               notes: "",
               x: 550,
               y: 400,
-              ...(state.trees.find((tree) => tree.id === parent.treeId)
-                ?.pedantic
+              filled: true,
+              ...(parent.id === parent.treeId
                 ? {
+                    color:
+                      DEFAULT_COLORS[
+                        (state.nodes.filter(
+                          (node) => node.parentId === parent.id,
+                        ).length %
+                          (DEFAULT_COLORS.length - 1)) +
+                          1
+                      ],
+                  }
+                : {
                     color: assignedNodeColor(state.nodes, parent),
-                    filled: true,
                     ...(parent.multipleColors
                       ? {
                           multipleColors: true,
                           colors: assignedNodeColors(state.nodes, parent),
                         }
                       : {}),
-                  }
-                : {}),
+                  }),
             },
           ],
         },
