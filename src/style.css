@@ -1889,3 +1889,58 @@ button:disabled {
     font-size: 18px;
   }
 }
+
+.history-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.manual-session {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  margin-top: 12px;
+}
+.session-duration {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.history-list article > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 1000px) {
+  .today-counter {
+    font-size: 16px;
+  }
+}
+
+.saved-controls {
+  position: relative;
+}
+.saved-controls .saved-state {
+  display: inline-flex;
+  cursor: default;
+}
+.saved-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  padding-top: 10px;
+  z-index: 20;
+}
+.saved-menu > button {
+  background: #101820;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.saved-controls:hover .saved-menu,
+.saved-controls:focus-within .saved-menu {
+  display: block;
+}
+.top-actions .saved-menu > button {
+  font-size: 12px;
+}

@@ -772,9 +772,13 @@ test("clear local data requires confirmation and stays empty after reload", asyn
     );
     localStorage.setItem("unrelated-data", "keep");
   });
+  await expect(
+    page.getByRole("button", { name: "Clear local data", exact: true }),
+  ).toBeHidden();
   const before = await page.evaluate(() =>
     localStorage.getItem("hyperforest.workspace.v1"),
   );
+  await page.getByText("Saved on this device", { exact: true }).hover();
   await page
     .getByRole("button", { name: "Clear local data", exact: true })
     .click();
@@ -789,6 +793,7 @@ test("clear local data requires confirmation and stays empty after reload", asyn
   expect(
     await page.evaluate(() => localStorage.getItem("hyperforest.workspace.v1")),
   ).toBe(before);
+  await page.getByText("Saved on this device", { exact: true }).hover();
   await page
     .getByRole("button", { name: "Clear local data", exact: true })
     .click();
@@ -876,7 +881,7 @@ test("focus tab title shows only the timer and updates every second", async ({
   await expect(page).toHaveTitle("00:00:01");
   await page.clock.runFor(1000);
   await expect(page).toHaveTitle("00:00:02");
-  await expect(page.getByTestId("today-time")).toHaveText("TODAY00:00:02");
+  await expect(page.getByTestId("today-time")).toHaveText("TODAY0h0m2s");
   await page.getByRole("button", { name: "Pause & return" }).click();
   await expect(page).toHaveTitle("hyperforest — a little structure");
   await page.clock.runFor(2000);
@@ -1139,7 +1144,7 @@ test("Today stays global across selections and sits above Focus in the same coun
     .getByRole("button", { name: "Pause & return", exact: true })
     .click();
   const pausedToday = await page.locator(".today-counter").innerText();
-  expect(pausedToday).not.toBe("00:00:00");
+  expect(pausedToday).not.toBe("0h0m0s");
   await page
     .getByRole("button", { name: "Select Test project", exact: true })
     .click();
@@ -1153,4 +1158,49 @@ test("Today stays global across selections and sits above Focus in the same coun
     .locator(".time-stat > span")
     .evaluate((element) => getComputedStyle(element).fontFamily);
   await expect(page.locator(".today-counter")).toHaveCSS("font-family", family);
+});
+
+test("change history adds a persistent session and confirms deletion", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page
+    .getByRole("button", { name: "Session history", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Change history", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Add session", exact: true }).click();
+  await page
+    .getByLabel("Session subject", { exact: true })
+    .selectOption("read");
+  await page.getByLabel("Minutes", { exact: true }).fill("1");
+  await page.getByLabel("Seconds", { exact: true }).fill("5");
+  await page.getByRole("button", { name: "Save session", exact: true }).click();
+  await expect(page.locator(".manual-session")).toHaveCount(0);
+  await expect(page.locator(".history-list article")).toHaveCount(1);
+  await expect(page.locator(".history-list")).toContainText("Read & wonder");
+  await page.reload();
+  await expect(page.locator(".today-counter")).toHaveText("0h1m5s");
+  await page
+    .getByRole("button", { name: "Session history", exact: true })
+    .click();
+  await expect(page.locator(".history-list article")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Change history", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Delete session Read & wonder", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.locator(".history-list article")).toHaveCount(1);
+  await page
+    .getByRole("button", { name: "Delete session Read & wonder", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Confirm delete", exact: true })
+    .click();
+  await expect(page.locator(".history-list article")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".today-counter")).toHaveText("0h0m0s");
 });

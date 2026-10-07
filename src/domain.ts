@@ -455,6 +455,10 @@ export function formatTime(ms: number): string {
     .toString()
     .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
+export function formatHms(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000);
+  return `${Math.floor(seconds / 3600)}h${Math.floor(seconds / 60) % 60}m${seconds % 60}s`;
+}
 export function shortTime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   if (seconds > 0 && seconds < 60) return `${seconds}s`;
@@ -495,6 +499,14 @@ export type Action =
   | { type: "complete"; id: string; sessionId: string }
   | { type: "start"; id: string }
   | { type: "pause" }
+  | {
+      type: "addSession";
+      id: string;
+      nodeId: string;
+      startedAt: number;
+      durationMs: number;
+    }
+  | { type: "deleteSession"; id: string }
   | { type: "finish"; id: string }
   | { type: "discard" };
 
@@ -957,6 +969,56 @@ export function apply(state: State, action: Action, now: number): State {
           },
         };
       break;
+    case "addSession": {
+      let node = requireNode(state, action.nodeId);
+      while (node.linkedTreeId) node = requireNode(state, node.linkedTreeId);
+      const endedAt = action.startedAt + action.durationMs;
+      if (
+        !Number.isFinite(action.startedAt) ||
+        action.startedAt < 0 ||
+        !Number.isFinite(action.durationMs) ||
+        action.durationMs <= 0 ||
+        !Number.isFinite(endedAt) ||
+        endedAt > now
+      )
+        throw new Error(
+          "Choose a valid past start time and a positive duration ending no later than now.",
+        );
+      next = {
+        ...state,
+        sessions: [
+          ...state.sessions,
+          {
+            id: action.id,
+            treeId: node.treeId,
+            nodeId: node.id,
+            title:
+              node.id === node.treeId ||
+              state.nodes.some(
+                (item) =>
+                  item.parentId === node.id && item.finishedAt === undefined,
+              )
+                ? "General"
+                : node.title,
+            group: nodePath(state, node.id),
+            startedAt: action.startedAt,
+            endedAt,
+            durationMs: action.durationMs,
+            periods: [{ start: action.startedAt, end: endedAt }],
+          },
+        ],
+      };
+      break;
+    }
+    case "deleteSession": {
+      if (!state.sessions.some((session) => session.id === action.id))
+        throw new Error("This saved session no longer exists.");
+      next = {
+        ...state,
+        sessions: state.sessions.filter((session) => session.id !== action.id),
+      };
+      break;
+    }
     case "finish":
       if (state.focus)
         next = {

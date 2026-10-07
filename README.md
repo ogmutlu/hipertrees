@@ -36,7 +36,7 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
   Colors and fill settings persist in backups.
 - Click the selected vertex name in the menu to rename it in edit mode.
   Press Enter or the pencil/checkmark controls to edit and save; Escape cancels.
-- **Clear local data**, beside Import/Export, asks for confirmation before resetting
+- **Clear local data**, revealed by hovering or focusing **Saved on this device**, asks for confirmation before resetting
   all hypertrees, vertices, notes, and sessions. Export a backup first to keep a copy.
 - **Done editing** freezes vertex positions and connections. Selection, focus,
   panning and zooming remain available.
@@ -197,3 +197,8 @@ estimate.
 **Session history** includes inclusive **From date** and **To date** filters based
 on the session's local start date, plus a **Subject** search matching titles and
 group paths. Filters combine; **Clear filters** restores the full history.
+
+Today uses compact `hms` duration formatting, for example `1h2m3s`. In **Session history**, enable **Change
+history** to add a session with a subject, local start time, and duration, or to
+delete an existing session with confirmation. Manual sessions update counters
+and are included in backups. Deleting a saved session leaves active focus intact.

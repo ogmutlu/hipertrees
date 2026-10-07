@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apply,
+  formatHms,
   DEFAULT_COLORS,
   assignedNodeColors,
   focusElapsed,
@@ -1097,4 +1098,72 @@ it("history date and subject filters combine with inclusive local-day boundaries
   ).toHaveLength(1);
   expect(filterSessions(state.sessions, "", "", "unknown")).toHaveLength(0);
   expect(filterSessions(state.sessions, "", "", "")).toHaveLength(3);
+});
+
+it("formats Today in h m s and edits history without disturbing focus", () => {
+  expect(formatHms(3723000)).toBe("1h2m3s");
+  expect(formatHms(0)).toBe("0h0m0s");
+  const day = new Date(2026, 9, 7).getTime();
+  let state = apply(
+    empty(),
+    { type: "create", id: "root", title: "Work" },
+    day,
+  );
+  state = apply(
+    state,
+    { type: "add", id: "leaf", parentId: "root", title: "Reading" },
+    day,
+  );
+  state = apply(state, { type: "start", id: "root" }, day + 5000);
+  state = apply(
+    state,
+    {
+      type: "addSession",
+      id: "manual",
+      nodeId: "leaf",
+      startedAt: day + 1000,
+      durationMs: 3000,
+    },
+    day + 10000,
+  );
+  expect(state.sessions[0]).toMatchObject({
+    title: "Reading",
+    group: "Work / Reading",
+    durationMs: 3000,
+    periods: [{ start: day + 1000, end: day + 4000 }],
+  });
+  expect(todayTime(state, day + 10000)).toBe(8000);
+  const focus = state.focus;
+  state = apply(state, { type: "deleteSession", id: "manual" }, day + 10000);
+  expect(state.focus).toEqual(focus);
+  expect(todayTime(state, day + 10000)).toBe(5000);
+  expect(() =>
+    apply(state, { type: "deleteSession", id: "manual" }, day + 10000),
+  ).toThrow(/no longer exists/);
+  expect(() =>
+    apply(
+      state,
+      {
+        type: "addSession",
+        id: "bad",
+        nodeId: "leaf",
+        startedAt: day,
+        durationMs: 0,
+      },
+      day + 10000,
+    ),
+  ).toThrow(/positive duration/);
+  expect(() =>
+    apply(
+      state,
+      {
+        type: "addSession",
+        id: "future",
+        nodeId: "leaf",
+        startedAt: day + 9000,
+        durationMs: 3000,
+      },
+      day + 10000,
+    ),
+  ).toThrow(/no later than now/);
 });

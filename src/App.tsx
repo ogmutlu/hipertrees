@@ -13,6 +13,7 @@ import {
   assignedNodeColors,
   focusElapsed,
   formatTime,
+  formatHms,
   shortTime,
   subtreeIds,
   totals,
@@ -30,6 +31,12 @@ import {
   Workspace,
 } from "./storage";
 
+function localDateTime(time: number): string {
+  const date = new Date(time);
+  return new Date(time - date.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+}
 function download(name: string, text: string, type = "application/json"): void {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const link = document.createElement("a");
@@ -347,6 +354,14 @@ export function App({ workspace }: { workspace: Workspace }) {
   const [historyFrom, setHistoryFrom] = useState("");
   const [historyTo, setHistoryTo] = useState("");
   const [historySubject, setHistorySubject] = useState("");
+  const [changingHistory, setChangingHistory] = useState(false);
+  const [addingSession, setAddingSession] = useState(false);
+  const [manualNode, setManualNode] = useState("");
+  const [manualStart, setManualStart] = useState("");
+  const [manualHours, setManualHours] = useState("0");
+  const [manualMinutes, setManualMinutes] = useState("30");
+  const [manualSeconds, setManualSeconds] = useState("0");
+  const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [customColor, setCustomColor] = useState("#dfc491");
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
@@ -528,9 +543,20 @@ export function App({ workspace }: { workspace: Workspace }) {
             >
               Session history
             </button>
-            <span className="saved-state" role="status">
-              <i /> Saved on this device
-            </span>
+            <div className="saved-controls">
+              <span className="saved-state" role="status" tabIndex={0}>
+                <i /> Saved on this device
+              </span>
+              <div className="saved-menu">
+                <button
+                  className="quiet-button danger"
+                  disabled={busy}
+                  onClick={() => setDialog("clear")}
+                >
+                  <Icon name="trash" /> Clear local data
+                </button>
+              </div>
+            </div>
             <button
               className="quiet-button"
               onClick={() => {
@@ -575,13 +601,6 @@ export function App({ workspace }: { workspace: Workspace }) {
                 event.target.value = "";
               }}
             />
-            <button
-              className="quiet-button danger"
-              disabled={busy}
-              onClick={() => setDialog("clear")}
-            >
-              <Icon name="trash" /> Clear local data
-            </button>
           </div>
         </header>
 
@@ -639,7 +658,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                 <div className="focus-control">
                   <div className="today-time" data-testid="today-time">
                     <small>TODAY</small>
-                    <span className="today-counter">{formatTime(today)}</span>
+                    <span className="today-counter">{formatHms(today)}</span>
                   </div>
                   <button
                     className="primary-button start-button"
@@ -1404,6 +1423,158 @@ export function App({ workspace }: { workspace: Workspace }) {
           <Dialog close={() => setDialog(null)} label="Session history">
             <div className="eyebrow">TIME WELL GIVEN</div>
             <h2>A record of showing up.</h2>
+            <div className="history-controls">
+              <button
+                className="quiet-button"
+                aria-pressed={changingHistory}
+                disabled={busy}
+                onClick={() => {
+                  setChangingHistory(!changingHistory);
+                  setAddingSession(false);
+                  setDeletingSession(null);
+                }}
+              >
+                {changingHistory ? "Done changing history" : "Change history"}
+              </button>
+              {changingHistory && (
+                <button
+                  className="quiet-button"
+                  disabled={busy || !state.nodes.length}
+                  onClick={() => {
+                    setManualNode(node?.id ?? state.nodes[0]?.id ?? "");
+                    setManualStart(localDateTime(Date.now() - 1800000));
+                    setManualHours("0");
+                    setManualMinutes("30");
+                    setManualSeconds("0");
+                    setAddingSession(true);
+                  }}
+                >
+                  Add session
+                </button>
+              )}
+            </div>
+            {changingHistory && addingSession && (
+              <form
+                className="manual-session"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const durationMs =
+                    (Number(manualHours) * 3600 +
+                      Number(manualMinutes) * 60 +
+                      Number(manualSeconds)) *
+                    1000;
+                  void run({
+                    type: "addSession",
+                    id: crypto.randomUUID(),
+                    nodeId: manualNode,
+                    startedAt: new Date(manualStart).getTime(),
+                    durationMs,
+                  }).then((success) => {
+                    if (success) {
+                      setAddingSession(false);
+                      setHistoryFrom("");
+                      setHistoryTo("");
+                      setHistorySubject("");
+                    }
+                  });
+                }}
+              >
+                <label>
+                  Session subject
+                  <select
+                    aria-label="Session subject"
+                    value={manualNode}
+                    required
+                    disabled={busy}
+                    onChange={(event) => setManualNode(event.target.value)}
+                  >
+                    {state.trees.map((item) => (
+                      <optgroup key={item.id} label={item.title}>
+                        {state.nodes
+                          .filter((goal) => goal.treeId === item.id)
+                          .map((goal) => (
+                            <option key={goal.id} value={goal.id}>
+                              {goal.title}
+                              {goal.finishedAt !== undefined
+                                ? " (finished)"
+                                : ""}
+                            </option>
+                          ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Started at
+                  <input
+                    type="datetime-local"
+                    required
+                    value={manualStart}
+                    disabled={busy}
+                    max={localDateTime(now)}
+                    onChange={(event) => setManualStart(event.target.value)}
+                  />
+                </label>
+                <div className="session-duration">
+                  <label>
+                    Hours
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="1"
+                      value={manualHours}
+                      disabled={busy}
+                      onChange={(event) => setManualHours(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Minutes
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      max="59"
+                      step="1"
+                      value={manualMinutes}
+                      disabled={busy}
+                      onChange={(event) => setManualMinutes(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Seconds
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      max="59"
+                      step="1"
+                      value={manualSeconds}
+                      disabled={busy}
+                      onChange={(event) => setManualSeconds(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="history-controls">
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={busy}
+                  >
+                    Save session
+                  </button>
+                  <button
+                    className="quiet-button"
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setAddingSession(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
             <div className="history-filters">
               <label>
                 From date
@@ -1467,6 +1638,41 @@ export function App({ workspace }: { workspace: Workspace }) {
                       </small>
                     </div>
                     <span>{shortTime(session.durationMs)}</span>
+                    {changingHistory &&
+                      (deletingSession === session.id ? (
+                        <div className="history-controls">
+                          <button
+                            className="quiet-button danger"
+                            disabled={busy}
+                            onClick={() => {
+                              void run({
+                                type: "deleteSession",
+                                id: session.id,
+                              }).then((success) => {
+                                if (success) setDeletingSession(null);
+                              });
+                            }}
+                          >
+                            Confirm delete
+                          </button>
+                          <button
+                            className="quiet-button"
+                            disabled={busy}
+                            onClick={() => setDeletingSession(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          className="icon-button danger"
+                          aria-label={`Delete session ${session.title}`}
+                          disabled={busy}
+                          onClick={() => setDeletingSession(session.id)}
+                        >
+                          <Icon name="trash" />
+                        </button>
+                      ))}
                   </article>
                 ))
               ) : (
