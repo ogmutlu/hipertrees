@@ -82,7 +82,12 @@ export function Graph({
   }, []);
   const [dragging, setDragging] = useState(false);
   const nodes = state.nodes
-    .filter((node) => node.treeId === treeId)
+    .filter(
+      (node) =>
+        node.treeId === treeId &&
+        (node.finishedAt === undefined ||
+          state.trees.find((tree) => tree.id === treeId)?.showFinished),
+    )
     .map((node) =>
       node.id === position?.id
         ? { ...node, x: position.x, y: position.y }
@@ -100,7 +105,7 @@ export function Graph({
   ): void => {
     if (event.button !== 0) return;
     event.stopPropagation();
-    if (node && !editing) {
+    if (node && (!editing || node.finishedAt !== undefined)) {
       select(node.id);
       return;
     }
@@ -119,7 +124,7 @@ export function Graph({
     event: ReactPointerEvent<SVGElement>,
     node: GoalNode,
   ): void => {
-    if (!editing || event.button !== 0) return;
+    if (!editing || node.finishedAt !== undefined || event.button !== 0) return;
     event.stopPropagation();
     const point = coordinate(event.clientX, event.clientY);
     setLink({
@@ -172,7 +177,9 @@ export function Graph({
   const up = async (): Promise<void> => {
     if (link) {
       const target = nodes.find(
-        (node) => Math.hypot(node.x - link.x, node.y - link.y) <= 48,
+        (node) =>
+          node.finishedAt === undefined &&
+          Math.hypot(node.x - link.x, node.y - link.y) <= 48,
       );
       setLink(null);
       await run({ type: "connect", id: link.id, parentId: target?.id ?? null });
@@ -233,11 +240,13 @@ export function Graph({
             return (
               <g
                 key={`edge-${node.id}`}
-                className="edge"
+                className={
+                  node.finishedAt !== undefined ? "edge finished-edge" : "edge"
+                }
                 data-testid={`edge-${node.id}`}
                 onPointerDown={(event) => linkDown(event, node)}
               >
-                {editing && (
+                {editing && node.finishedAt === undefined && (
                   <>
                     <path
                       d={d}
@@ -301,7 +310,7 @@ export function Graph({
               <g
                 key={node.id}
                 transform={`translate(${node.x} ${node.y})`}
-                className={`goal ${node.id === treeId ? "root-goal" : ""} ${selected === node.id ? "selected" : ""} ${isActive ? "active" : ""}`}
+                className={`goal ${node.id === treeId ? "root-goal" : ""} ${selected === node.id ? "selected" : ""} ${isActive ? "active" : ""} ${node.finishedAt !== undefined ? "finished-ghost" : ""}`}
                 data-testid={`node-${node.id}`}
               >
                 <g
@@ -311,6 +320,7 @@ export function Graph({
                   onPointerDown={(event) => down(event, node)}
                   onDoubleClick={(event) => {
                     event.stopPropagation();
+                    if (node.finishedAt !== undefined) return;
                     void start(node.id, {
                       x: event.clientX - innerWidth / 2,
                       y: event.clientY - innerHeight / 2,
@@ -406,19 +416,22 @@ export function Graph({
                       : " focused"}
                   </text>
                 </g>
-                {editing && node.id !== treeId && node.parentId === null && (
-                  <circle
-                    cx="0"
-                    cy={-radius - 10}
-                    r="8"
-                    fill="#101820"
-                    stroke={color}
-                    strokeWidth="2"
-                    className="edge-handle"
-                    data-testid={`edge-handle-${node.id}`}
-                    onPointerDown={(event) => linkDown(event, node)}
-                  />
-                )}
+                {editing &&
+                  node.finishedAt === undefined &&
+                  node.id !== treeId &&
+                  node.parentId === null && (
+                    <circle
+                      cx="0"
+                      cy={-radius - 10}
+                      r="8"
+                      fill="#101820"
+                      stroke={color}
+                      strokeWidth="2"
+                      className="edge-handle"
+                      data-testid={`edge-handle-${node.id}`}
+                      onPointerDown={(event) => linkDown(event, node)}
+                    />
+                  )}
               </g>
             );
           })}

@@ -514,7 +514,7 @@ test("new workspaces are empty and roots can move in an expandable graph", async
     .toBeGreaterThan(area.height + 100);
 });
 
-test("finishing a child removes it and preserves parent time after reload", async ({
+test("finishing preserves a child as a ghost, frees its name, and retains parent time", async ({
   page,
 }) => {
   await page.goto("./");
@@ -549,6 +549,32 @@ test("finishing a child removes it and preserves parent time after reload", asyn
     .getByRole("button", { name: "Session history", exact: true })
     .click();
   await expect(page.locator(".history-list")).toContainText("Read & wonder");
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  const finished = page.getByRole("switch", { name: "finished", exact: true });
+  await finished.click();
+  await expect(page.getByTestId("node-read")).toHaveClass(/finished-ghost/);
+  await page
+    .getByRole("button", { name: "Select Read & wonder", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Focus", exact: true }),
+  ).toBeDisabled();
+  await page.getByTestId("node-read").getByRole("button").dblclick();
+  await expect(page.locator(".focus-screen")).toHaveCount(0);
+  await page.reload();
+  await expect(finished).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByTestId("node-read")).toHaveClass(/finished-ghost/);
+  await page
+    .getByRole("button", { name: "Select Discover", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Edit graph", exact: true }).click();
+  await page.getByRole("button", { name: "New vertex", exact: true }).click();
+  await page.getByLabel("Goal name", { exact: true }).fill("Read & wonder");
+  await page.getByRole("button", { name: "Add step", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Select Read & wonder", exact: true }),
+  ).toHaveCount(2);
 });
 
 test("Ctrl + scroll zooms the graph while ordinary scrolling stays native", async ({
@@ -850,6 +876,7 @@ test("focus tab title shows only the timer and updates every second", async ({
   await expect(page).toHaveTitle("00:00:01");
   await page.clock.runFor(1000);
   await expect(page).toHaveTitle("00:00:02");
+  await expect(page.getByTestId("today-time")).toHaveText("TODAY · 00:00:02");
   await page.getByRole("button", { name: "Pause & return" }).click();
   await expect(page).toHaveTitle("hyperforest — a little structure");
   await page.clock.runFor(2000);

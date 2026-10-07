@@ -16,6 +16,7 @@ import {
   shortTime,
   subtreeIds,
   totals,
+  todayTotals,
 } from "./domain";
 import type { Action, GoalNode, State } from "./domain";
 import { exportArchive, archiveBackup } from "./export";
@@ -139,7 +140,7 @@ function NodeName({
         <button
           className="rename-name"
           aria-label="Rename selected vertex"
-          disabled={!editing || busy}
+          disabled={!editing || busy || node.finishedAt !== undefined}
           onClick={() => {
             original.current = node;
             setName(node.title);
@@ -350,12 +351,20 @@ export function App({ workspace }: { workspace: Workspace }) {
   const tree = state.trees.find((item) => item.id === treeId) ?? state.trees[0];
   const node =
     state.nodes.find(
-      (item) => item.id === selected && item.treeId === tree?.id,
+      (item) =>
+        item.id === selected &&
+        item.treeId === tree?.id &&
+        (item.finishedAt === undefined || tree.showFinished),
     ) ?? state.nodes.find((item) => item.id === tree?.id);
   const focusNode = state.nodes.find((item) => item.id === state.focus?.nodeId);
   const focus = state.focus;
   const time = totals(state, tree?.id ?? "", now);
-  const children = state.nodes.filter((item) => item.parentId === node?.id);
+  const today = todayTotals(state, tree?.id ?? "", now);
+  const children = state.nodes.filter(
+    (item) =>
+      item.parentId === node?.id &&
+      (item.finishedAt === undefined || tree?.showFinished),
+  );
   const color = node ? nodeColor(state, node) : "#dfc491";
   const colors = node ? assignedNodeColors(state.nodes, node) : [color];
   const run = async (action: Action): Promise<boolean> => {
@@ -581,7 +590,12 @@ export function App({ workspace }: { workspace: Workspace }) {
               <span className="tab-dot" />
               {item.title}
               <span className="tab-count">
-                {state.nodes.filter((goal) => goal.treeId === item.id).length}
+                {
+                  state.nodes.filter(
+                    (goal) =>
+                      goal.treeId === item.id && goal.finishedAt === undefined,
+                  ).length
+                }
               </span>
             </button>
           ))}
@@ -597,7 +611,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                 <NodeName
                   key={node.id}
                   node={node}
-                  editing={editing}
+                  editing={editing && node.finishedAt === undefined}
                   busy={busy}
                   run={run}
                 />
@@ -610,11 +624,14 @@ export function App({ workspace }: { workspace: Workspace }) {
                         of {shortTime(node.estimateMinutes * 60000)}
                       </small>
                     )}
+                    <small className="today-time" data-testid="today-time">
+                      TODAY · {formatTime(today.get(node.id) ?? 0)}
+                    </small>
                   </div>
                 </div>
                 <button
                   className="primary-button start-button"
-                  disabled={busy}
+                  disabled={busy || node.finishedAt !== undefined}
                   onClick={(event) => {
                     const rect = event.currentTarget.getBoundingClientRect();
                     void start(node.id, {
@@ -639,7 +656,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                 <button
                   className="quiet-button"
                   aria-label="Vertex color"
-                  disabled={busy || !editing}
+                  disabled={busy || !editing || node.finishedAt !== undefined}
                   onClick={() => {
                     setCustomColor(color);
                     setDialog("color");
@@ -651,7 +668,12 @@ export function App({ workspace }: { workspace: Workspace }) {
                   Parent
                   <select
                     aria-label="Parent connection"
-                    disabled={busy || !editing || node.id === node.treeId}
+                    disabled={
+                      busy ||
+                      !editing ||
+                      node.id === node.treeId ||
+                      node.finishedAt !== undefined
+                    }
                     value={node.parentId ?? ""}
                     onChange={(event) => {
                       void run({
@@ -673,6 +695,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                       .filter(
                         (item) =>
                           item.treeId === node.treeId &&
+                          item.finishedAt === undefined &&
                           !subtreeIds(state, node.id).has(item.id),
                       )
                       .map((item) => (
@@ -684,7 +707,12 @@ export function App({ workspace }: { workspace: Workspace }) {
                 </label>
                 <button
                   className="quiet-button"
-                  disabled={busy || !editing || node.id === node.treeId}
+                  disabled={
+                    busy ||
+                    !editing ||
+                    node.id === node.treeId ||
+                    node.finishedAt !== undefined
+                  }
                   onClick={() => setDialog("complete")}
                 >
                   <Icon name="check" size={16} />
@@ -697,7 +725,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                       ? "Delete hypertree"
                       : "Delete subtree"
                   }
-                  disabled={!editing || busy}
+                  disabled={!editing || busy || node.finishedAt !== undefined}
                   onClick={() => setDialog("delete")}
                 >
                   <Icon name="trash" size={16} />
@@ -714,7 +742,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                 </button>
                 <button
                   className="quiet-button"
-                  disabled={!editing || busy}
+                  disabled={!editing || busy || node.finishedAt !== undefined}
                   onClick={() => {
                     setNewName("");
                     setLinkedTreeId("");
@@ -764,7 +792,27 @@ export function App({ workspace }: { workspace: Workspace }) {
                     </p>
                   </div>
                 </div>
+                <button
+                  className="quiet-button pedantic-toggle finished-toggle"
+                  role="switch"
+                  aria-label="finished"
+                  aria-checked={tree.showFinished ?? false}
+                  disabled={busy}
+                  onClick={() => {
+                    void run({
+                      type: "showFinished",
+                      treeId: tree.id,
+                      enabled: !tree.showFinished,
+                    });
+                  }}
+                >
+                  <span className="toggle-track" aria-hidden="true">
+                    <i />
+                  </span>
+                  finished
+                </button>
               </div>
+
               <div className="child-list" aria-label="Child vertices">
                 {children.length ? (
                   children.map((child) => (
@@ -1221,10 +1269,10 @@ export function App({ workspace }: { workspace: Workspace }) {
             <div className="eyebrow">ONE STEP COMPLETE</div>
             <h2>Finish “{node.title}”?</h2>
             <p>
-              This removes the subtree rooted at this vertex. Its time stays in
-              the parent and all its ancestors, and saved sessions stay in
-              history. Any active session in this subtree will be saved. Export
-              a backup first to keep the notes.
+              This hides and preserves the subtree rooted at this vertex,
+              including its notes and time. Its name becomes available for
+              reuse. Enable finished to see it as a ghost. Any active session in
+              this subtree will be saved.
             </p>
             <div className="dialog-actions">
               <button className="quiet-button" onClick={() => setDialog(null)}>

@@ -62,7 +62,7 @@ export function assignedNodeColors(
 export function nextSubtreeColor(state: State, treeId: string): string {
   const used = new Set(
     state.nodes
-      .filter((node) => node.treeId === treeId)
+      .filter((node) => node.treeId === treeId && node.finishedAt === undefined)
       .flatMap((node) => assignedNodeColors(state.nodes, node)),
   );
   for (const color of DEFAULT_COLORS.slice(1))
@@ -89,6 +89,7 @@ const nodeSchema = z.object({
   title: z.string().trim().min(1).max(100),
   estimateMinutes: z.number().finite().nonnegative(),
   notes: z.string(),
+  finishedAt: timestamp.optional(),
   linkedTreeId: z.string().min(1).optional(),
   filled: z.boolean().optional(),
   color: colorSchema.optional(),
@@ -110,7 +111,11 @@ const treeSchema = z.object({
   title: z.string().trim().min(1).max(100),
   createdAt: timestamp,
   pedantic: z.boolean().optional(),
+  showFinished: z.boolean().optional(),
 });
+const periodSchema = z
+  .object({ start: timestamp, end: timestamp })
+  .refine((period) => period.end >= period.start, "Invalid focus interval");
 const sessionSchema = z.object({
   id: z.string().min(1),
   treeId: z.string(),
@@ -121,6 +126,7 @@ const sessionSchema = z.object({
   startedAt: timestamp,
   endedAt: timestamp,
   durationMs: timestamp,
+  periods: z.array(periodSchema).optional(),
 });
 const focusSchema = z.object({
   nodeId: z.string(),
@@ -130,6 +136,7 @@ const focusSchema = z.object({
   startedAt: timestamp,
   runningSince: timestamp.nullable(),
   elapsedMs: timestamp,
+  periods: z.array(periodSchema).optional(),
 });
 export const stateSchema = z
   .object({
@@ -168,8 +175,12 @@ export const stateSchema = z
       )
         fail("Invalid graph structure");
       const key = `${node.treeId}:${node.parentId}:${node.title}`;
-      if (siblingNames.has(key)) fail("Sibling names must be unique");
-      siblingNames.add(key);
+      if (node.finishedAt === undefined) {
+        if (siblingNames.has(key)) fail("Sibling names must be unique");
+        siblingNames.add(key);
+        if (parent?.finishedAt !== undefined)
+          fail("Active vertices cannot have finished parents.");
+      } else if (node.id === node.treeId) fail("The root cannot be finished.");
       const ancestors = new Set([node.id]);
       let next = node.parentId;
       while (next !== null) {
@@ -194,13 +205,16 @@ export const stateSchema = z
       if (session.endedAt < session.startedAt) fail("Invalid session dates");
     if (
       state.focus &&
-      nodes.get(state.focus.nodeId)?.treeId !== state.focus.treeId
+      (nodes.get(state.focus.nodeId)?.treeId !== state.focus.treeId ||
+        nodes.get(state.focus.nodeId)?.finishedAt !== undefined)
     )
       fail("Focus vertex is missing");
     for (const tree of state.trees) {
       if (!tree.pedantic) continue;
       const groups = new Map<string, Set<string>>();
-      const forestNodes = state.nodes.filter((node) => node.treeId === tree.id);
+      const forestNodes = state.nodes.filter(
+        (node) => node.treeId === tree.id && node.finishedAt === undefined,
+      );
       if (
         forestNodes.some(
           (node) => node.id !== tree.id && node.parentId === null,
@@ -325,6 +339,70 @@ export function totals(
       );
   return result;
 }
+function focusPeriods(
+  focus: Focus,
+  now: number,
+): { start: number; end: number }[] {
+  if (!focus.periods)
+    return [
+      {
+        start: Math.max(focus.startedAt, now - focusElapsed(focus, now)),
+        end: now,
+      },
+    ];
+  return focus.runningSince === null
+    ? focus.periods
+    : [
+        ...focus.periods,
+        { start: focus.runningSince, end: Math.max(focus.runningSince, now) },
+      ];
+}
+export function todayTotals(
+  state: State,
+  treeId: string,
+  now: number,
+): Map<string, number> {
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  const midnight = day.getTime();
+  const duration = (periods: { start: number; end: number }[]): number =>
+    periods.reduce(
+      (total, period) =>
+        total +
+        Math.max(
+          0,
+          Math.min(now, period.end) - Math.max(midnight, period.start),
+        ),
+      0,
+    );
+  const sessions = state.sessions.map((session) => ({
+    ...session,
+    durationMs: duration(
+      session.periods ?? [
+        {
+          start: Math.max(
+            session.startedAt,
+            session.endedAt - session.durationMs,
+          ),
+          end: session.endedAt,
+        },
+      ],
+    ),
+  }));
+  if (state.focus)
+    sessions.push({
+      id: "live-today",
+      treeId: state.focus.treeId,
+      nodeId: state.focus.nodeId,
+      title: state.focus.title,
+      group: state.focus.group,
+      startedAt: state.focus.startedAt,
+      endedAt: now,
+      durationMs: duration(focusPeriods(state.focus, now)),
+      periods: [],
+    });
+  return totals({ ...state, sessions, focus: null }, treeId, now);
+}
 export function subtreeIds(state: State, id: string): Set<string> {
   const ids = new Set([id]);
   const stack = [id];
@@ -355,6 +433,7 @@ export function shortTime(ms: number): string {
     : `${minutes}m`;
 }
 export type Action =
+  | { type: "showFinished"; treeId: string; enabled: boolean }
   | { type: "pedantic"; treeId: string; enabled: boolean }
   | { type: "create"; id: string; title: string }
   | { type: "reorderTree"; id: string; direction: -1 | 1 }
@@ -389,7 +468,9 @@ export type Action =
   | { type: "discard" };
 
 export function layout(state: State, treeId: string): State {
-  const nodes = state.nodes.filter((node) => node.treeId === treeId);
+  const nodes = state.nodes.filter(
+    (node) => node.treeId === treeId && node.finishedAt === undefined,
+  );
   const children = (id: string): GoalNode[] =>
     nodes.filter((node) => node.parentId === id);
   const weights = new Map<string, number>();
@@ -471,8 +552,47 @@ export function apply(state: State, action: Action, now: number): State {
     (!Number.isFinite(action.estimateMinutes) || action.estimateMinutes < 0)
   )
     throw new Error("The estimate must be a nonnegative number of minutes.");
+  if (
+    "id" in action &&
+    [
+      "start",
+      "complete",
+      "connect",
+      "move",
+      "color",
+      "colors",
+      "multipleColors",
+      "fill",
+    ].includes(action.type) &&
+    state.nodes.find((node) => node.id === action.id)?.finishedAt !== undefined
+  )
+    throw new Error(
+      "Finished vertices cannot be focused or changed in the graph.",
+    );
+  if (
+    action.type === "add" &&
+    requireNode(state, action.parentId).finishedAt !== undefined
+  )
+    throw new Error("Cannot add children to a finished vertex.");
+  if (
+    action.type === "connect" &&
+    action.parentId &&
+    requireNode(state, action.parentId).finishedAt !== undefined
+  )
+    throw new Error("Cannot connect to a finished vertex.");
   let next: State = state;
   switch (action.type) {
+    case "showFinished": {
+      next = {
+        ...state,
+        trees: state.trees.map((tree) =>
+          tree.id === action.treeId
+            ? { ...tree, showFinished: action.enabled }
+            : tree,
+        ),
+      };
+      break;
+    }
     case "pedantic": {
       if (!state.trees.some((tree) => tree.id === action.treeId))
         throw new Error("This hypertree no longer exists.");
@@ -712,7 +832,6 @@ export function apply(state: State, action: Action, now: number): State {
       const node = requireNode(state, action.id);
       if (node.id === node.treeId)
         throw new Error("Only child goals can be finished.");
-      const parentId = node.parentId ?? node.treeId;
       const ids = subtreeIds(state, node.id);
       const saved =
         state.focus && ids.has(state.focus.nodeId)
@@ -720,12 +839,10 @@ export function apply(state: State, action: Action, now: number): State {
           : state;
       next = {
         ...saved,
-        nodes: saved.nodes.filter((item) => !ids.has(item.id)),
-        sessions: saved.sessions.map((session) =>
-          session.treeId === node.treeId &&
-          ids.has(session.creditNodeId ?? session.nodeId)
-            ? { ...session, creditNodeId: parentId }
-            : session,
+        nodes: saved.nodes.map((item) =>
+          ids.has(item.id)
+            ? { ...item, finishedAt: item.finishedAt ?? now }
+            : item,
         ),
       };
       break;
@@ -782,13 +899,17 @@ export function apply(state: State, action: Action, now: number): State {
               treeId: node.treeId,
               title:
                 node.id === node.treeId ||
-                state.nodes.some((item) => item.parentId === node.id)
+                state.nodes.some(
+                  (item) =>
+                    item.parentId === node.id && item.finishedAt === undefined,
+                )
                   ? "General"
                   : node.title,
               group: nodePath(state, node.id),
               startedAt: now,
               runningSince: now,
               elapsedMs: 0,
+              periods: [],
             },
       };
       break;
@@ -800,6 +921,7 @@ export function apply(state: State, action: Action, now: number): State {
           focus: {
             ...state.focus,
             elapsedMs: focusElapsed(state.focus, now),
+            periods: focusPeriods(state.focus, now),
             runningSince: null,
           },
         };
@@ -819,6 +941,7 @@ export function apply(state: State, action: Action, now: number): State {
               startedAt: state.focus.startedAt,
               endedAt: Math.max(now, state.focus.startedAt),
               durationMs: focusElapsed(state.focus, now),
+              periods: focusPeriods(state.focus, now),
             },
           ],
           focus: null,

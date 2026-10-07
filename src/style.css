@@ -1786,3 +1786,33 @@ button:disabled {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+.goal.finished-ghost {
+  opacity: 0.28;
+}
+.finished-ghost .node-title {
+  font-style: italic;
+}
+.finished-ghost circle,
+.finished-ghost path {
+  stroke-dasharray: 3 3;
+}
+
+.finished-edge {
+  opacity: 0.2;
+}
+.finished-edge path {
+  stroke-dasharray: 4 4;
+}
+
+.pedantic-tooltip {
+  pointer-events: none;
+}
+
+.today-time {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--muted);
+}

@@ -100,6 +100,7 @@ export class Workspace {
         "color",
         "colors",
         "multipleColors",
+        "finishedAt",
         "filled",
         "x",
         "y",

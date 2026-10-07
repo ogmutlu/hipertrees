@@ -30,6 +30,10 @@ export function structureYaml(state: State, now: number): string {
         `${pad}  focus_milliseconds: ${time.get(node.id) ?? 0}`,
         `${pad}  colors: [${assignedNodeColors(state.nodes, node).map(quote).join(", ")}]`,
       );
+      if (node.finishedAt !== undefined)
+        lines.push(
+          `${pad}  finished_at: ${quote(new Date(node.finishedAt).toISOString())}`,
+        );
       if (node.linkedTreeId) {
         const source = state.trees.find(
           (item) => item.id === node.linkedTreeId,

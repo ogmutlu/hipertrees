@@ -51,9 +51,14 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
   enabling pedantic on an existing graph.
   Older browser workspaces marked pedantic despite disconnected components are
   migrated with pedantic off, keeping their vertices, notes, and sessions intact.
-- Select a child and choose **Finish goal** to remove it and its descendants.
-  Their time remains credited to the parent and its ancestors; session history
-  keeps the original goal names. Any active session in that subtree is saved.
+- Select a child and choose **Finish goal** to hide and preserve its subtree,
+  including notes, focus time, and session history. Its name and default color
+  become available for reuse. Any active session in that subtree is saved.
+- Toggle **finished**, to the right of **pedantic**, to display finished vertices
+  as translucent ghosts. You can inspect their notes and time, but cannot focus
+  or rearrange them. The toggle is saved per hypertree. Finished vertices stay
+  in exports and are excluded from pedantic checks. **Delete subtree** remains
+  the permanent removal action.
 - Click a vertex to select it. Drag its circle to rearrange the graph. Drag empty
   canvas to pan; Ctrl + scroll or use +/− to zoom. Fit resets the view; Arrange lays out
   the hypertree again. Adding a vertex arranges its hypertree automatically.
@@ -181,3 +186,9 @@ colors are used. Descendants still inherit their parent’s colors.
 are readable reports; importing restores the original JSON snapshot.
 
 **Rearrange tabs** and **New hypertree** appear in the top row, immediately before **Session history**.
+
+**Today**, below **Time given**, shows focus time for the current local calendar
+day, including active sessions, finished vertices, and linked hypertrees. New
+sessions record focus intervals so pauses and midnight boundaries are handled
+exactly. Older sessions without interval data use their saved duration ending
+at the session’s end time for the daily estimate.

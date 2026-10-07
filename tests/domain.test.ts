@@ -6,6 +6,7 @@ import {
   focusElapsed,
   stateSchema,
   totals,
+  todayTotals,
   welcome,
 } from "../src/domain";
 import type { State } from "../src/domain";
@@ -174,7 +175,11 @@ describe("focus accounting", () => {
       { type: "complete", id: "branch", sessionId: "unused" },
       4000,
     );
-    expect(state.nodes.map((node) => node.id)).toEqual(["root"]);
+    expect(
+      state.nodes
+        .filter((node) => node.finishedAt === undefined)
+        .map((node) => node.id),
+    ).toEqual(["root"]);
     state = apply(
       state,
       { type: "pedantic", treeId: "root", enabled: false },
@@ -247,10 +252,11 @@ describe("focus accounting", () => {
       90000,
     );
     expect(state.focus).toBeNull();
-    expect(state.nodes.some((node) => node.id === "leaf")).toBe(false);
+    expect(state.nodes.find((node) => node.id === "leaf")?.finishedAt).toBe(
+      90000,
+    );
     expect(state.sessions[0]).toMatchObject({
       nodeId: "leaf",
-      creditNodeId: "branch",
       durationMs: 60000,
       title: "Read",
       group: "Thesis / Research / Read",
@@ -259,6 +265,7 @@ describe("focus accounting", () => {
       new Map([
         ["root", 60000],
         ["branch", 60000],
+        ["leaf", 60000],
       ]),
     );
     state = apply(state, { type: "start", id: "branch" }, 100000);
@@ -268,7 +275,13 @@ describe("focus accounting", () => {
       130000,
     );
     state = stateSchema.parse(JSON.parse(JSON.stringify(state)));
-    expect(totals(state, "root", 140000)).toEqual(new Map([["root", 90000]]));
+    expect(totals(state, "root", 140000)).toEqual(
+      new Map([
+        ["root", 90000],
+        ["branch", 90000],
+        ["leaf", 60000],
+      ]),
+    );
     expect(state.sessions).toHaveLength(2);
     expect(state.sessions[0]?.nodeId).toBe("leaf");
     expect(() =>
@@ -300,7 +313,11 @@ describe("focus accounting", () => {
       { type: "complete", id: "branch", sessionId: "unused" },
       6000,
     );
-    expect(state.nodes.map((node) => node.id)).toEqual(["root"]);
+    expect(
+      state.nodes
+        .filter((node) => node.finishedAt === undefined)
+        .map((node) => node.id),
+    ).toEqual(["root"]);
     expect(totals(state, "root", 6000).get("root")).toBe(3000);
   });
   it("excludes pauses and credits every ancestor once", () => {
@@ -928,4 +945,101 @@ it("root children skip used colors after deletion, recoloring, and palette exhau
   expect(state.nodes.find((node) => node.id === "skipped")?.color).not.toBe(
     DEFAULT_COLORS[3],
   );
+});
+
+it("preserves finished notes, frees names and colors, and excludes ghosts from pedantic checks", () => {
+  let state = apply(
+    empty(),
+    { type: "create", id: "root", title: "Work" },
+    1000,
+  );
+  state = apply(
+    state,
+    { type: "add", id: "old", parentId: "root", title: "Read" },
+    1001,
+  );
+  state = apply(
+    state,
+    {
+      type: "edit",
+      id: "old",
+      title: "Read",
+      estimateMinutes: 0,
+      notes: "# Keep me",
+    },
+    1002,
+  );
+  state = apply(
+    state,
+    { type: "complete", id: "old", sessionId: "unused" },
+    1003,
+  );
+  state = apply(
+    state,
+    { type: "add", id: "new", parentId: "root", title: "Read" },
+    1004,
+  );
+  expect(state.nodes.find((node) => node.id === "new")?.color).toBe(
+    DEFAULT_COLORS[1],
+  );
+  expect(state.nodes.find((node) => node.id === "old")?.notes).toBe(
+    "# Keep me",
+  );
+  expect(() => apply(state, { type: "start", id: "old" }, 1005)).toThrow(
+    /Finished/,
+  );
+  expect(() =>
+    apply(
+      state,
+      { type: "add", id: "bad", parentId: "old", title: "Child" },
+      1005,
+    ),
+  ).toThrow(/finished/);
+  state = apply(
+    state,
+    { type: "showFinished", treeId: "root", enabled: true },
+    1006,
+  );
+  expect(
+    stateSchema.parse(JSON.parse(JSON.stringify(state))).trees[0]?.showFinished,
+  ).toBe(true);
+});
+
+it("does not discard the legacy demo after a vertex has been finished", () => {
+  const storage = new MemoryStorage();
+  const state = apply(
+    welcome(1000),
+    { type: "complete", id: "read", sessionId: "unused" },
+    2000,
+  );
+  storage.setItem(STORAGE_KEY, JSON.stringify(state));
+  const workspace = new Workspace(storage, 3000);
+  expect(
+    workspace.getSnapshot().nodes.find((node) => node.id === "read")
+      ?.finishedAt,
+  ).toBe(2000);
+});
+
+it("today counters exclude previous days and pauses, and split focus at local midnight", () => {
+  const midnight = new Date(2026, 9, 7).getTime();
+  let state = apply(
+    empty(),
+    { type: "create", id: "root", title: "Work" },
+    midnight - 86400000,
+  );
+  state = apply(state, { type: "start", id: "root" }, midnight - 10000);
+  state = apply(state, { type: "pause" }, midnight - 5000);
+  state = apply(state, { type: "start", id: "root" }, midnight + 2000);
+  expect(todayTotals(state, "root", midnight + 7000).get("root")).toBe(5000);
+  state = apply(state, { type: "finish", id: "saved" }, midnight + 7000);
+  expect(todayTotals(state, "root", midnight + 9000).get("root")).toBe(5000);
+  expect(totals(state, "root", midnight + 9000).get("root")).toBe(10000);
+  state = apply(
+    state,
+    { type: "start", id: "root" },
+    midnight + 86400000 - 2000,
+  );
+  expect(
+    todayTotals(state, "root", midnight + 86400000 + 3000).get("root"),
+  ).toBe(3000);
 });
