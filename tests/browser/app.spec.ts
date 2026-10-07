@@ -976,9 +976,22 @@ test("reorders tabs and routes linked focus to its source root", async ({
   await page
     .getByRole("button", { name: "Create hypertree", exact: true })
     .click();
-  const controls = await page.locator(".tree-actions").boundingBox();
-  const tabs = await page.getByRole("tablist").boundingBox();
-  expect(controls!.y + controls!.height).toBeLessThanOrEqual(tabs!.y);
+  const rearrange = await page
+    .getByRole("button", { name: "Rearrange tabs", exact: true })
+    .boundingBox();
+  const create = await page
+    .getByRole("button", { name: "New hypertree", exact: true })
+    .boundingBox();
+  const history = await page
+    .getByRole("button", { name: "Session history", exact: true })
+    .boundingBox();
+  expect(rearrange!.x + rearrange!.width).toBeLessThanOrEqual(create!.x);
+  expect(create!.x + create!.width).toBeLessThanOrEqual(history!.x);
+  expect(
+    Math.abs(
+      create!.y + create!.height / 2 - (history!.y + history!.height / 2),
+    ),
+  ).toBeLessThan(1);
   await expect(
     page
       .getByRole("tablist")

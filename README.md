@@ -180,4 +180,4 @@ colors are used. Descendants still inherit their parent’s colors.
 **Import** accepts the ZIP archive or an existing JSON backup. The YAML and notes
 are readable reports; importing restores the original JSON snapshot.
 
-**Rearrange tabs** and **New hypertree** appear above the tabs, aligned to the right.
+**Rearrange tabs** and **New hypertree** appear in the top row, immediately before **Session history**.

@@ -484,6 +484,25 @@ export function App({ workspace }: { workspace: Workspace }) {
             hyperforest
           </a>
           <div className="top-actions">
+            {state.trees.length > 1 && (
+              <button
+                className="quiet-button"
+                onClick={() => setDialog("tabs")}
+              >
+                Rearrange tabs
+              </button>
+            )}
+            <button
+              className="quiet-button"
+              disabled={busy}
+              onClick={() => {
+                setNewName("");
+                setLinkedTreeId("");
+                setDialog("tree");
+              }}
+            >
+              <Icon name="plus" size={16} /> New hypertree
+            </button>
             <button
               className="quiet-button"
               onClick={() => setDialog("history")}
@@ -546,24 +565,7 @@ export function App({ workspace }: { workspace: Workspace }) {
             </button>
           </div>
         </header>
-        <div className="tree-actions" aria-label="Hypertree controls">
-          {state.trees.length > 1 && (
-            <button className="quiet-button" onClick={() => setDialog("tabs")}>
-              Rearrange tabs
-            </button>
-          )}
-          <button
-            className="new-tree"
-            disabled={busy}
-            onClick={() => {
-              setNewName("");
-              setLinkedTreeId("");
-              setDialog("tree");
-            }}
-          >
-            <Icon name="plus" size={16} /> New hypertree
-          </button>
-        </div>
+
         <nav className="tree-tabs" role="tablist" aria-label="Goal hypertrees">
           {state.trees.map((item) => (
             <button
