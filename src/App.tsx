@@ -325,6 +325,7 @@ export function App({ workspace }: { workspace: Workspace }) {
     | "edit"
     | "delete"
     | "complete"
+    | "tabs"
     | "history"
     | "clear"
     | null
@@ -552,6 +553,11 @@ export function App({ workspace }: { workspace: Workspace }) {
               </span>
             </button>
           ))}
+          {state.trees.length > 1 && (
+            <button className="quiet-button" onClick={() => setDialog("tabs")}>
+              Rearrange tabs
+            </button>
+          )}
           <button
             className="new-tree"
             disabled={busy}
@@ -906,6 +912,49 @@ export function App({ workspace }: { workspace: Workspace }) {
               </div>
             )}
           </>
+        )}
+        {dialog === "tabs" && (
+          <Dialog close={() => setDialog(null)} label="Rearrange tabs">
+            <h2>Rearrange tabs</h2>
+            <div className="tab-order">
+              {state.trees.map((item, index) => (
+                <div key={item.id}>
+                  <span>{item.title}</span>
+                  <button
+                    className="quiet-button"
+                    disabled={busy || index === 0}
+                    aria-label={`Move ${item.title} earlier`}
+                    onClick={() => {
+                      void run({
+                        type: "reorderTree",
+                        id: item.id,
+                        direction: -1,
+                      });
+                    }}
+                  >
+                    ←
+                  </button>
+                  <button
+                    className="quiet-button"
+                    disabled={busy || index === state.trees.length - 1}
+                    aria-label={`Move ${item.title} later`}
+                    onClick={() => {
+                      void run({
+                        type: "reorderTree",
+                        id: item.id,
+                        direction: 1,
+                      });
+                    }}
+                  >
+                    →
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button className="primary-button" onClick={() => setDialog(null)}>
+              Done
+            </button>
+          </Dialog>
         )}
         {(dialog === "tree" || dialog === "child") && (
           <Dialog

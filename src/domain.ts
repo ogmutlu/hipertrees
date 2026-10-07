@@ -338,6 +338,7 @@ export function shortTime(ms: number): string {
 export type Action =
   | { type: "pedantic"; treeId: string; enabled: boolean }
   | { type: "create"; id: string; title: string }
+  | { type: "reorderTree"; id: string; direction: -1 | 1 }
   | { type: "isolate"; id: string; treeId: string; title: string }
   | { type: "color"; id: string; color: string | null }
   | { type: "colors"; id: string; colors: string[] }
@@ -738,8 +739,26 @@ export function apply(state: State, action: Action, now: number): State {
       };
       break;
     }
+    case "reorderTree": {
+      const index = state.trees.findIndex((tree) => tree.id === action.id);
+      if (index < 0) throw new Error("Hypertree no longer exists.");
+      const target = index + action.direction;
+      if (target < 0 || target >= state.trees.length) break;
+      const trees = [...state.trees];
+      const moved = trees.splice(index, 1)[0]!;
+      trees.splice(target, 0, moved);
+      next = { ...state, trees };
+      break;
+    }
     case "start": {
-      const node = requireNode(state, action.id);
+      let node = requireNode(state, action.id);
+      const visited = new Set<string>();
+      while (node.linkedTreeId) {
+        if (visited.has(node.id))
+          throw new Error("Hypertree links cannot contain a cycle.");
+        visited.add(node.id);
+        node = requireNode(state, node.linkedTreeId);
+      }
       if (state.focus && state.focus.nodeId !== node.id)
         throw new Error("Save or discard your current session first.");
       next = {

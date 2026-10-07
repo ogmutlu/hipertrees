@@ -965,3 +965,44 @@ test("adds another hypertree as a persistent live vertex", async ({ page }) => {
   );
   expect(linked).toBeTruthy();
 });
+
+test("reorders tabs and routes linked focus to its source root", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page
+    .getByRole("button", { name: "New hypertree", exact: true })
+    .click();
+  await page.getByLabel("Hypertree name").fill("Container");
+  await page
+    .getByRole("button", { name: "Create hypertree", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Rearrange tabs", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Move Container earlier", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.getByRole("tab").first()).toContainText("Container");
+  await page.reload();
+  await expect(page.getByRole("tab").first()).toContainText("Container");
+  await page.getByRole("tab", { name: /Container/ }).click();
+  await page.getByRole("button", { name: "Edit graph", exact: true }).click();
+  await page.getByRole("button", { name: "New vertex", exact: true }).click();
+  await page.getByLabel("Vertex type").selectOption("welcome");
+  await page.getByRole("button", { name: "Add step", exact: true }).click();
+  await page.getByRole("button", { name: "Focus", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem("hyperforest.workspace.v1")!).focus
+            .nodeId,
+      ),
+    )
+    .toBe("welcome");
+  await page
+    .getByRole("button", { name: "Pause & return", exact: true })
+    .click();
+});

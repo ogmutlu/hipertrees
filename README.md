@@ -158,3 +158,8 @@ active focus time updates the linked vertex and its ancestors live, while the
 source remains in its own tab. Circular links are excluded. Removing a linked
 vertex leaves the source intact; deleting the source makes its linked contribution
 zero. Links are included in backups.
+
+Use **Rearrange tabs** to move hypertrees earlier or later. The order is saved
+locally and included in backups. Focusing a linked vertex starts a session on the
+original hypertree’s root; its live and saved time appears in both views without
+adding a second session. A deleted source cannot be focused through its link.

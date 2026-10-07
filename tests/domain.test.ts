@@ -839,3 +839,40 @@ it("linked hypertrees aggregate live and saved time, persist, and reject cycles"
   expect(state.nodes.some((node) => node.id === "link")).toBe(true);
   expect(totals(state, "a", 9003).get("link")).toBe(0);
 });
+
+it("focus through a hypertree link credits only the original root and appears in both views", () => {
+  let state = apply(empty(), { type: "create", id: "a", title: "A" }, 1000);
+  state = apply(state, { type: "create", id: "b", title: "B" }, 1001);
+  state = apply(
+    state,
+    {
+      type: "add",
+      id: "link",
+      parentId: "a",
+      title: "Linked B",
+      linkedTreeId: "b",
+    },
+    1002,
+  );
+  state = apply(state, { type: "start", id: "link" }, 2000);
+  expect(state.focus?.nodeId).toBe("b");
+  expect(totals(state, "b", 5000).get("b")).toBe(3000);
+  expect(totals(state, "a", 5000).get("link")).toBe(3000);
+  state = apply(state, { type: "pause" }, 5000);
+  state = apply(state, { type: "start", id: "b" }, 6000);
+  state = apply(state, { type: "finish", id: "saved" }, 7000);
+  expect(state.sessions[0]?.treeId).toBe("b");
+  expect(totals(state, "a", 9000).get("a")).toBe(4000);
+  state = apply(state, { type: "delete", id: "b" }, 10000);
+  expect(() => apply(state, { type: "start", id: "link" }, 10001)).toThrow();
+});
+
+it("tab ordering persists without changing graph data", () => {
+  let state = apply(empty(), { type: "create", id: "a", title: "A" }, 1000);
+  state = apply(state, { type: "create", id: "b", title: "B" }, 1001);
+  const nodes = state.nodes;
+  state = apply(state, { type: "reorderTree", id: "b", direction: -1 }, 1002);
+  state = stateSchema.parse(JSON.parse(JSON.stringify(state)));
+  expect(state.trees.map((tree) => tree.id)).toEqual(["b", "a"]);
+  expect(state.nodes).toEqual(nodes);
+});

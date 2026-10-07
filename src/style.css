@@ -1770,3 +1770,19 @@ button:disabled {
 .node-color-control {
   flex-wrap: wrap;
 }
+
+.tab-order {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.tab-order > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tab-order span {
+  flex: 1;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
