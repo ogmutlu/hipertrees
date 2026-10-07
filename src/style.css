@@ -535,7 +535,8 @@ label > span {
   color: #6e8595;
 }
 input,
-textarea {
+textarea,
+.dialog select {
   background: #0c141c;
   border: 1px solid #344451;
   color: #e4e9e9;
@@ -546,7 +547,8 @@ textarea {
   font-size: 13px;
 }
 input:focus,
-textarea:focus {
+textarea:focus,
+.dialog select:focus {
   border-color: #a79167;
   box-shadow: 0 0 0 2px #dfc4910c;
 }

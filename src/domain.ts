@@ -70,6 +70,7 @@ const nodeSchema = z.object({
   title: z.string().trim().min(1).max(100),
   estimateMinutes: z.number().finite().nonnegative(),
   notes: z.string(),
+  linkedTreeId: z.string().min(1).optional(),
   filled: z.boolean().optional(),
   color: colorSchema.optional(),
   colors: z
@@ -161,6 +162,12 @@ export const stateSchema = z
         next = nodes.get(next)?.parentId ?? null;
       }
     }
+    for (const node of state.nodes)
+      if (
+        node.linkedTreeId &&
+        !canLinkTree(state, node.treeId, node.linkedTreeId)
+      )
+        fail("Hypertree links cannot contain a cycle.");
     for (const tree of state.trees)
       if (nodes.get(tree.id)?.title !== tree.title)
         fail("Root name must match the hypertree");
@@ -239,11 +246,32 @@ export function focusElapsed(focus: Focus, now: number): number {
     (focus.runningSince === null ? 0 : Math.max(0, now - focus.runningSince))
   );
 }
+export function canLinkTree(
+  state: Pick<State, "nodes">,
+  treeId: string,
+  targetId: string,
+): boolean {
+  const pending = [targetId];
+  const visited = new Set<string>();
+  while (pending.length) {
+    const current = pending.pop()!;
+    if (current === treeId) return false;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    for (const node of state.nodes)
+      if (node.treeId === current && node.linkedTreeId)
+        pending.push(node.linkedTreeId);
+  }
+  return true;
+}
 export function totals(
   state: State,
   treeId: string,
   now: number,
+  cache = new Map<string, Map<string, number>>(),
 ): Map<string, number> {
+  const cached = cache.get(treeId);
+  if (cached) return cached;
   const tree = state.trees.find((item) => item.id === treeId);
   const nodes = new Map(
     state.nodes
@@ -251,6 +279,7 @@ export function totals(
       .map((node) => [node.id, node]),
   );
   const result = new Map([...nodes.keys()].map((id) => [id, 0]));
+  cache.set(treeId, result);
   if (!tree) return result;
   const credit = (nodeId: string, duration: number): void => {
     let node = nodes.get(nodeId);
@@ -268,6 +297,13 @@ export function totals(
       credit(session.creditNodeId ?? session.nodeId, session.durationMs);
   if (state.focus?.treeId === treeId && state.focus.startedAt >= tree.createdAt)
     credit(state.focus.nodeId, focusElapsed(state.focus, now));
+  for (const node of nodes.values())
+    if (node.linkedTreeId)
+      credit(
+        node.id,
+        totals(state, node.linkedTreeId, now, cache).get(node.linkedTreeId) ??
+          0,
+      );
   return result;
 }
 export function subtreeIds(state: State, id: string): Set<string> {
@@ -307,7 +343,13 @@ export type Action =
   | { type: "colors"; id: string; colors: string[] }
   | { type: "multipleColors"; id: string; enabled: boolean }
   | { type: "fill"; id: string; filled: boolean }
-  | { type: "add"; id: string; parentId: string; title: string }
+  | {
+      type: "add";
+      id: string;
+      parentId: string;
+      title: string;
+      linkedTreeId?: string;
+    }
   | {
       type: "edit";
       expected?: Pick<GoalNode, "title" | "notes" | "estimateMinutes">;
@@ -537,6 +579,11 @@ export function apply(state: State, action: Action, now: number): State {
       break;
     }
     case "add": {
+      if (
+        action.linkedTreeId &&
+        !state.trees.some((tree) => tree.id === action.linkedTreeId)
+      )
+        throw new Error("The linked hypertree no longer exists.");
       const parent = requireNode(state, action.parentId);
       next = layout(
         {
@@ -548,6 +595,9 @@ export function apply(state: State, action: Action, now: number): State {
               treeId: parent.treeId,
               parentId: parent.id,
               title: action.title.trim(),
+              ...(action.linkedTreeId
+                ? { linkedTreeId: action.linkedTreeId }
+                : {}),
               estimateMinutes: 0,
               notes: "",
               x: 550,

@@ -781,3 +781,61 @@ it("assigns root children successive palette colors and descendants inherit in e
     ).toEqual([DEFAULT_COLORS[1], "#123456"]);
   }
 });
+
+it("linked hypertrees aggregate live and saved time, persist, and reject cycles", () => {
+  let state = apply(empty(), { type: "create", id: "a", title: "A" }, 1000);
+  state = apply(state, { type: "create", id: "b", title: "B" }, 1001);
+  state = apply(
+    state,
+    { type: "add", id: "link", parentId: "a", title: "B", linkedTreeId: "b" },
+    1002,
+  );
+  state = apply(state, { type: "start", id: "b" }, 2000);
+  expect(totals(state, "a", 5000).get("link")).toBe(3000);
+  expect(totals(state, "a", 6000).get("a")).toBe(4000);
+  state = apply(state, { type: "finish", id: "saved" }, 6000);
+  state = stateSchema.parse(JSON.parse(JSON.stringify(state)));
+  expect(totals(state, "a", 9000).get("link")).toBe(4000);
+  expect(() =>
+    apply(
+      state,
+      {
+        type: "add",
+        id: "cycle",
+        parentId: "b",
+        title: "A",
+        linkedTreeId: "a",
+      },
+      9001,
+    ),
+  ).toThrow(/cycle/);
+  expect(() =>
+    apply(
+      state,
+      {
+        type: "add",
+        id: "self",
+        parentId: "a",
+        title: "Self",
+        linkedTreeId: "a",
+      },
+      9001,
+    ),
+  ).toThrow(/cycle/);
+  expect(() =>
+    apply(
+      state,
+      {
+        type: "add",
+        id: "missing",
+        parentId: "a",
+        title: "Missing",
+        linkedTreeId: "missing",
+      },
+      9001,
+    ),
+  ).toThrow(/no longer exists/);
+  state = apply(state, { type: "delete", id: "b" }, 9002);
+  expect(state.nodes.some((node) => node.id === "link")).toBe(true);
+  expect(totals(state, "a", 9003).get("link")).toBe(0);
+});

@@ -152,3 +152,9 @@ colored arcs. Turning the toggle off keeps the first color. Pedantic checks ever
 color independently, so a vertex can belong to several overlapping hyperedges.
 Each new child of the root receives the next default subtree color. Deeper
 vertices inherit all their parent’s colors, with pedantic on or off.
+
+In **New vertex**, use **Vertex type** to link another hypertree. Its saved and
+active focus time updates the linked vertex and its ancestors live, while the
+source remains in its own tab. Circular links are excluded. Removing a linked
+vertex leaves the source intact; deleting the source makes its linked contribution
+zero. Links are included in backups.

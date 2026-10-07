@@ -935,3 +935,33 @@ test("multiple colors render, persist, and can return to a single color", async 
   await expect(multiple).toHaveAttribute("aria-checked", "false");
   await expect(page.getByTestId("node-colors-welcome")).toHaveCount(0);
 });
+
+test("adds another hypertree as a persistent live vertex", async ({ page }) => {
+  await page.goto("./");
+  await page
+    .getByRole("button", { name: "New hypertree", exact: true })
+    .click();
+  await page.getByLabel("Hypertree name").fill("Linked project");
+  await page
+    .getByRole("button", { name: "Create hypertree", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Edit graph", exact: true }).click();
+  await page.getByRole("button", { name: "New vertex", exact: true }).click();
+  await page.getByLabel("Vertex type").selectOption("welcome");
+  await expect(page.getByLabel("Goal name", { exact: true })).toHaveValue(
+    "Test project",
+  );
+  await page.getByRole("button", { name: "Add step", exact: true }).click();
+  await expect(page.locator(".inspector h2")).toHaveText("Test project");
+  await page.reload();
+  await page.getByRole("tab", { name: /Linked project/ }).click();
+  await expect(
+    page.getByRole("button", { name: "Select Test project", exact: true }),
+  ).toBeVisible();
+  const linked = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem("hyperforest.workspace.v1")!).nodes.find(
+      (node: { linkedTreeId?: string }) => node.linkedTreeId === "welcome",
+    ),
+  );
+  expect(linked).toBeTruthy();
+});

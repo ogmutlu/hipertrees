@@ -9,6 +9,7 @@ import {
 import type { CSSProperties, FormEvent } from "react";
 import {
   DEFAULT_COLORS,
+  canLinkTree,
   assignedNodeColors,
   focusElapsed,
   formatTime,
@@ -330,6 +331,7 @@ export function App({ workspace }: { workspace: Workspace }) {
   >(null);
   const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState("");
+  const [linkedTreeId, setLinkedTreeId] = useState("");
   const [customColor, setCustomColor] = useState("#dfc491");
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
@@ -422,7 +424,13 @@ export function App({ workspace }: { workspace: Workspace }) {
       }
     } else if (
       node &&
-      (await run({ type: "add", id, parentId: node.id, title: newName }))
+      (await run({
+        type: "add",
+        id,
+        parentId: node.id,
+        title: newName,
+        ...(linkedTreeId ? { linkedTreeId } : {}),
+      }))
     ) {
       setSelected(id);
       setDialog(null);
@@ -549,6 +557,7 @@ export function App({ workspace }: { workspace: Workspace }) {
             disabled={busy}
             onClick={() => {
               setNewName("");
+              setLinkedTreeId("");
               setDialog("tree");
             }}
           >
@@ -686,6 +695,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                   disabled={!editing || busy}
                   onClick={() => {
                     setNewName("");
+                    setLinkedTreeId("");
                     setDialog("child");
                   }}
                 >
@@ -776,6 +786,7 @@ export function App({ workspace }: { workspace: Workspace }) {
               className="primary-button"
               onClick={() => {
                 setNewName("");
+                setLinkedTreeId("");
                 setDialog("tree");
               }}
             >
@@ -916,6 +927,42 @@ export function App({ workspace }: { workspace: Workspace }) {
                 void create(event);
               }}
             >
+              {dialog === "child" && node && (
+                <label>
+                  Vertex type
+                  <select
+                    aria-label="Vertex type"
+                    value={linkedTreeId}
+                    onChange={(event) => {
+                      setLinkedTreeId(event.target.value);
+                      setNewName(
+                        state.trees.find(
+                          (tree) => tree.id === event.target.value,
+                        )?.title ?? "",
+                      );
+                    }}
+                  >
+                    <option value="">New goal</option>
+                    <optgroup label="Link another hypertree">
+                      {state.trees
+                        .filter((tree) =>
+                          canLinkTree(state, node.treeId, tree.id),
+                        )
+                        .map((tree) => (
+                          <option key={tree.id} value={tree.id}>
+                            {tree.title}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                  {linkedTreeId && (
+                    <p>
+                      Its live total contributes to this vertex and its
+                      ancestors. The original hypertree stays in its own tab.
+                    </p>
+                  )}
+                </label>
+              )}
               <label>
                 {dialog === "tree" ? "Hypertree name" : "Goal name"}
                 <input
