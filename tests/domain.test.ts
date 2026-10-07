@@ -7,6 +7,8 @@ import {
   stateSchema,
   totals,
   todayTotals,
+  todayTime,
+  filterSessions,
   welcome,
 } from "../src/domain";
 import type { State } from "../src/domain";
@@ -574,13 +576,18 @@ describe("validated persistence", () => {
   });
 });
 
-it("new hypertrees default to pedantic and require connectivity even with distinct colors", () => {
+it("new hypertrees default to non-pedantic and enforce connectivity when enabled", () => {
   let state = apply(
     empty(),
     { type: "create", id: "root", title: "Connected" },
     1000,
   );
-  expect(state.trees[0]?.pedantic).toBe(true);
+  expect(state.trees[0]?.pedantic).toBe(false);
+  state = apply(
+    state,
+    { type: "pedantic", treeId: "root", enabled: true },
+    1000,
+  );
   state = apply(
     state,
     { type: "add", id: "leaf", parentId: "root", title: "Leaf" },
@@ -684,6 +691,11 @@ describe("multiple vertex colors", () => {
     let state = apply(
       empty(),
       { type: "create", id: "root", title: "Work" },
+      1000,
+    );
+    state = apply(
+      state,
+      { type: "pedantic", treeId: "root", enabled: true },
       1000,
     );
     state = apply(
@@ -1042,4 +1054,47 @@ it("today counters exclude previous days and pauses, and split focus at local mi
   expect(
     todayTotals(state, "root", midnight + 86400000 + 3000).get("root"),
   ).toBe(3000);
+});
+
+it("global Today counts all subjects once, including linked focus and deleted subjects", () => {
+  const day = new Date(2026, 9, 7).getTime();
+  let state = apply(empty(), { type: "create", id: "a", title: "A" }, day);
+  state = apply(state, { type: "create", id: "b", title: "B" }, day);
+  state = apply(
+    state,
+    {
+      type: "add",
+      id: "link",
+      parentId: "a",
+      title: "Linked",
+      linkedTreeId: "b",
+    },
+    day,
+  );
+  state = apply(state, { type: "start", id: "link" }, day + 1000);
+  expect(todayTime(state, day + 5000)).toBe(4000);
+  state = apply(state, { type: "finish", id: "first" }, day + 5000);
+  state = apply(state, { type: "delete", id: "b" }, day + 6000);
+  state = apply(state, { type: "start", id: "a" }, day + 7000);
+  expect(todayTime(state, day + 9000)).toBe(6000);
+});
+it("history date and subject filters combine with inclusive local-day boundaries", () => {
+  const day = new Date(2026, 9, 7).getTime();
+  let state = apply(
+    empty(),
+    { type: "create", id: "a", title: "Research" },
+    day - 86400000,
+  );
+  for (const [index, start] of [day - 1000, day, day + 86399000].entries()) {
+    state = apply(state, { type: "start", id: "a" }, start);
+    state = apply(state, { type: "finish", id: `saved-${index}` }, start + 500);
+  }
+  expect(
+    filterSessions(state.sessions, "2026-10-07", "2026-10-07", "research"),
+  ).toHaveLength(2);
+  expect(
+    filterSessions(state.sessions, "", "2026-10-06", "General"),
+  ).toHaveLength(1);
+  expect(filterSessions(state.sessions, "", "", "unknown")).toHaveLength(0);
+  expect(filterSessions(state.sessions, "", "", "")).toHaveLength(3);
 });

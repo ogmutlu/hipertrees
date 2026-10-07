@@ -40,7 +40,7 @@ Open the printed URL, including `/hyperforest/`. Vite's base path is fixed to
   all hypertrees, vertices, notes, and sessions. Export a backup first to keep a copy.
 - **Done editing** freezes vertex positions and connections. Selection, focus,
   panning and zooming remain available.
-- **pedantic**, on the right of the edit toolbar, is enabled by default for new
+- **pedantic**, on the right of the edit toolbar, is disabled by default for new
   hypertrees. It requires the entire graph to be connected and each color's
   vertices to induce a connected subtree of the host tree. Each graph represents
   a hypertree; the separate hypertrees together form a hyperforest. Hover or focus
@@ -187,8 +187,13 @@ are readable reports; importing restores the original JSON snapshot.
 
 **Rearrange tabs** and **New hypertree** appear in the top row, immediately before **Session history**.
 
-**Today**, below **Time given**, shows focus time for the current local calendar
-day, including active sessions, finished vertices, and linked hypertrees. New
-sessions record focus intervals so pauses and midnight boundaries are handled
-exactly. Older sessions without interval data use their saved duration ending
-at the session’s end time for the daily estimate.
+**Today**, above **Focus**, shows focus time across all subjects for the current
+local calendar day. Each session counts once, including focus started through
+linked vertices and history from deleted subjects. New sessions record focus
+intervals so pauses and midnight boundaries are handled exactly. Older sessions
+without intervals use their saved duration ending at their end time for the daily
+estimate.
+
+**Session history** includes inclusive **From date** and **To date** filters based
+on the session's local start date, plus a **Subject** search matching titles and
+group paths. Filters combine; **Clear filters** restores the full history.

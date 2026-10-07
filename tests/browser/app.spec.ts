@@ -358,7 +358,7 @@ test("hyperforest supports isolated colored vertices, notes and a full-width can
   if (!canvas || !details) throw new Error("Missing layout");
   expect(Math.abs(canvas.width - details.width)).toBeLessThan(2);
   expect(details.y + details.height).toBeLessThanOrEqual(canvas.y + 1);
-  expect(details.height).toBeLessThan(150);
+  expect(details.height).toBeLessThan(190);
   await page.reload();
   await expect(isolated.locator('[data-testid^="node-fill-"]')).toHaveAttribute(
     "fill",
@@ -876,14 +876,14 @@ test("focus tab title shows only the timer and updates every second", async ({
   await expect(page).toHaveTitle("00:00:01");
   await page.clock.runFor(1000);
   await expect(page).toHaveTitle("00:00:02");
-  await expect(page.getByTestId("today-time")).toHaveText("TODAY · 00:00:02");
+  await expect(page.getByTestId("today-time")).toHaveText("TODAY00:00:02");
   await page.getByRole("button", { name: "Pause & return" }).click();
   await expect(page).toHaveTitle("hyperforest — a little structure");
   await page.clock.runFor(2000);
   await expect(page).toHaveTitle("hyperforest — a little structure");
 });
 
-test("new hypertrees enable pedantic by default and cannot be disconnected", async ({
+test("new hypertrees default to pedantic off and enforce connectivity when enabled", async ({
   page,
 }) => {
   await page.goto("./");
@@ -895,6 +895,8 @@ test("new hypertrees enable pedantic by default and cannot be disconnected", asy
     .getByRole("button", { name: "Create hypertree", exact: true })
     .click();
   const toggle = page.getByRole("switch", { name: "pedantic", exact: true });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await toggle.hover();
   await expect(page.getByRole("tooltip")).toContainText(
@@ -1069,4 +1071,86 @@ test("export includes a readable YAML structure alongside the JSON backup", asyn
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect.poll(() => downloads).toEqual(["hyperforest-export.zip"]);
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("session history combines date and subject filters and can clear them", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const state = JSON.parse(localStorage.getItem("hyperforest.workspace.v1")!);
+    state.sessions = [
+      {
+        id: "old",
+        title: "Reading",
+        group: "Research",
+        startedAt: new Date(2026, 9, 6, 12).getTime(),
+      },
+      {
+        id: "today-read",
+        title: "Reading",
+        group: "Research",
+        startedAt: new Date(2026, 9, 7, 12).getTime(),
+      },
+      {
+        id: "today-write",
+        title: "Writing",
+        group: "Thesis",
+        startedAt: new Date(2026, 9, 7, 13).getTime(),
+      },
+    ].map((session) => ({
+      ...session,
+      treeId: "welcome",
+      nodeId: "read",
+      endedAt: session.startedAt + 60000,
+      durationMs: 60000,
+    }));
+    localStorage.setItem("hyperforest.workspace.v1", JSON.stringify(state));
+  });
+  await page.goto("./");
+  await page
+    .getByRole("button", { name: "Session history", exact: true })
+    .click();
+  const history = page.locator(".history-list article");
+  await expect(history).toHaveCount(3);
+  await page.getByLabel("From date", { exact: true }).fill("2026-10-07");
+  await page.getByLabel("To date", { exact: true }).fill("2026-10-07");
+  await expect(history).toHaveCount(2);
+  await page.getByLabel("Subject", { exact: true }).fill("research");
+  await expect(history).toHaveCount(1);
+  await expect(history).toContainText("Reading");
+  await page.getByLabel("Subject", { exact: true }).fill("no match");
+  await expect(
+    page.getByText("No sessions match these filters.", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .click();
+  await expect(history).toHaveCount(3);
+});
+
+test("Today stays global across selections and sits above Focus in the same counter font", async ({
+  page,
+}) => {
+  await page.goto("./");
+  await page.clock.install();
+  await focusVertex(page, "Read & wonder");
+  await page.clock.runFor(3000);
+  await page
+    .getByRole("button", { name: "Pause & return", exact: true })
+    .click();
+  const pausedToday = await page.locator(".today-counter").innerText();
+  expect(pausedToday).not.toBe("00:00:00");
+  await page
+    .getByRole("button", { name: "Select Test project", exact: true })
+    .click();
+  await expect(page.locator(".today-counter")).toHaveText(pausedToday);
+  const today = await page.getByTestId("today-time").boundingBox();
+  const focus = await page
+    .getByRole("button", { name: "Focus", exact: true })
+    .boundingBox();
+  expect(today!.y + today!.height).toBeLessThanOrEqual(focus!.y);
+  const family = await page
+    .locator(".time-stat > span")
+    .evaluate((element) => getComputedStyle(element).fontFamily);
+  await expect(page.locator(".today-counter")).toHaveCSS("font-family", family);
 });

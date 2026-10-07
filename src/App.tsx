@@ -16,7 +16,8 @@ import {
   shortTime,
   subtreeIds,
   totals,
-  todayTotals,
+  todayTime,
+  filterSessions,
 } from "./domain";
 import type { Action, GoalNode, State } from "./domain";
 import { exportArchive, archiveBackup } from "./export";
@@ -343,6 +344,9 @@ export function App({ workspace }: { workspace: Workspace }) {
   const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState("");
   const [linkedTreeId, setLinkedTreeId] = useState("");
+  const [historyFrom, setHistoryFrom] = useState("");
+  const [historyTo, setHistoryTo] = useState("");
+  const [historySubject, setHistorySubject] = useState("");
   const [customColor, setCustomColor] = useState("#dfc491");
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
   const [expanded, setExpanded] = useState(false);
@@ -359,7 +363,13 @@ export function App({ workspace }: { workspace: Workspace }) {
   const focusNode = state.nodes.find((item) => item.id === state.focus?.nodeId);
   const focus = state.focus;
   const time = totals(state, tree?.id ?? "", now);
-  const today = todayTotals(state, tree?.id ?? "", now);
+  const today = todayTime(state, now);
+  const historySessions = filterSessions(
+    state.sessions,
+    historyFrom,
+    historyTo,
+    historySubject,
+  );
   const children = state.nodes.filter(
     (item) =>
       item.parentId === node?.id &&
@@ -624,25 +634,28 @@ export function App({ workspace }: { workspace: Workspace }) {
                         of {shortTime(node.estimateMinutes * 60000)}
                       </small>
                     )}
-                    <small className="today-time" data-testid="today-time">
-                      TODAY · {formatTime(today.get(node.id) ?? 0)}
-                    </small>
                   </div>
                 </div>
-                <button
-                  className="primary-button start-button"
-                  disabled={busy || node.finishedAt !== undefined}
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    void start(node.id, {
-                      x: rect.left - innerWidth / 2,
-                      y: rect.top - innerHeight / 2,
-                    });
-                  }}
-                >
-                  <Icon name="play" size={16} />
-                  Focus
-                </button>
+                <div className="focus-control">
+                  <div className="today-time" data-testid="today-time">
+                    <small>TODAY</small>
+                    <span className="today-counter">{formatTime(today)}</span>
+                  </div>
+                  <button
+                    className="primary-button start-button"
+                    disabled={busy || node.finishedAt !== undefined}
+                    onClick={(event) => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      void start(node.id, {
+                        x: rect.left - innerWidth / 2,
+                        y: rect.top - innerHeight / 2,
+                      });
+                    }}
+                  >
+                    <Icon name="play" size={16} />
+                    Focus
+                  </button>
+                </div>
                 <button
                   className="icon-button"
                   aria-label="Edit goal"
@@ -788,7 +801,7 @@ export function App({ workspace }: { workspace: Workspace }) {
                       initially assigned colors. Pedantic requires the whole
                       graph to be connected, and all vertices with the same
                       color to form one connected subtree. New hypertrees have
-                      pedantic enabled by default.
+                      pedantic disabled by default.
                     </p>
                   </div>
                 </div>
@@ -1391,9 +1404,59 @@ export function App({ workspace }: { workspace: Workspace }) {
           <Dialog close={() => setDialog(null)} label="Session history">
             <div className="eyebrow">TIME WELL GIVEN</div>
             <h2>A record of showing up.</h2>
+            <div className="history-filters">
+              <label>
+                From date
+                <input
+                  type="date"
+                  value={historyFrom}
+                  max={historyTo || undefined}
+                  onChange={(event) => setHistoryFrom(event.target.value)}
+                />
+              </label>
+              <label>
+                To date
+                <input
+                  type="date"
+                  value={historyTo}
+                  min={historyFrom || undefined}
+                  onChange={(event) => setHistoryTo(event.target.value)}
+                />
+              </label>
+              <label>
+                Subject
+                <input
+                  type="search"
+                  value={historySubject}
+                  placeholder="Any title or group"
+                  list="history-subjects"
+                  onChange={(event) => setHistorySubject(event.target.value)}
+                />
+              </label>
+              <datalist id="history-subjects">
+                {[
+                  ...new Set(state.sessions.map((session) => session.group)),
+                ].map((group) => (
+                  <option key={group} value={group} />
+                ))}
+              </datalist>
+              <button
+                className="quiet-button"
+                onClick={() => {
+                  setHistoryFrom("");
+                  setHistoryTo("");
+                  setHistorySubject("");
+                }}
+              >
+                Clear filters
+              </button>
+            </div>
+            <p role="status">
+              {historySessions.length} of {state.sessions.length} sessions
+            </p>
             <div className="history-list">
-              {state.sessions.length ? (
-                [...state.sessions].reverse().map((session) => (
+              {historySessions.length ? (
+                [...historySessions].reverse().map((session) => (
                   <article key={session.id}>
                     <div>
                       <strong>{session.title}</strong>
@@ -1407,7 +1470,11 @@ export function App({ workspace }: { workspace: Workspace }) {
                   </article>
                 ))
               ) : (
-                <p>Your saved sessions will appear here. Start small.</p>
+                <p>
+                  {state.sessions.length
+                    ? "No sessions match these filters."
+                    : "Your saved sessions will appear here. Start small."}
+                </p>
               )}
             </div>
           </Dialog>

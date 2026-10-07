@@ -357,11 +357,7 @@ function focusPeriods(
         { start: focus.runningSince, end: Math.max(focus.runningSince, now) },
       ];
 }
-export function todayTotals(
-  state: State,
-  treeId: string,
-  now: number,
-): Map<string, number> {
+function todaySessions(state: State, now: number): State["sessions"] {
   const day = new Date(now);
   day.setHours(0, 0, 0, 0);
   const midnight = day.getTime();
@@ -401,7 +397,42 @@ export function todayTotals(
       durationMs: duration(focusPeriods(state.focus, now)),
       periods: [],
     });
-  return totals({ ...state, sessions, focus: null }, treeId, now);
+  return sessions;
+}
+export function todayTotals(
+  state: State,
+  treeId: string,
+  now: number,
+): Map<string, number> {
+  return totals(
+    { ...state, sessions: todaySessions(state, now), focus: null },
+    treeId,
+    now,
+  );
+}
+export function todayTime(state: State, now: number): number {
+  return todaySessions(state, now).reduce(
+    (total, session) => total + session.durationMs,
+    0,
+  );
+}
+export function filterSessions(
+  sessions: State["sessions"],
+  from: string,
+  to: string,
+  subject: string,
+): State["sessions"] {
+  const query = subject.trim().toLocaleLowerCase();
+  return sessions.filter((session) => {
+    const date = new Date(session.startedAt);
+    const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    return (
+      (!from || day >= from) &&
+      (!to || day <= to) &&
+      (!query ||
+        `${session.title} ${session.group}`.toLocaleLowerCase().includes(query))
+    );
+  });
 }
 export function subtreeIds(state: State, id: string): Set<string> {
   const ids = new Set([id]);
@@ -614,7 +645,7 @@ export function apply(state: State, action: Action, now: number): State {
         ...state,
         trees: [
           ...state.trees,
-          { id: action.id, title, createdAt: now, pedantic: true },
+          { id: action.id, title, createdAt: now, pedantic: false },
         ],
         nodes: [
           ...state.nodes,
