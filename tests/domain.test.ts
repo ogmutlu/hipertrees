@@ -876,3 +876,56 @@ it("tab ordering persists without changing graph data", () => {
   expect(state.trees.map((tree) => tree.id)).toEqual(["b", "a"]);
   expect(state.nodes).toEqual(nodes);
 });
+
+it("root children skip used colors after deletion, recoloring, and palette exhaustion", () => {
+  let state = apply(
+    empty(),
+    { type: "create", id: "root", title: "Work" },
+    1000,
+  );
+  for (let index = 1; index <= 9; index++) {
+    state = apply(
+      state,
+      {
+        type: "add",
+        id: `c${index}`,
+        parentId: "root",
+        title: `Child ${index}`,
+      },
+      1001,
+    );
+  }
+  expect(new Set(state.nodes.map((node) => node.color)).size).toBe(10);
+  state = apply(state, { type: "delete", id: "c2" }, 1002);
+  state = apply(
+    state,
+    { type: "add", id: "reused", parentId: "root", title: "Reused" },
+    1003,
+  );
+  expect(state.nodes.find((node) => node.id === "reused")?.color).toBe(
+    DEFAULT_COLORS[2],
+  );
+  state = apply(
+    state,
+    { type: "multipleColors", id: "root", enabled: true },
+    1004,
+  );
+  state = apply(state, { type: "delete", id: "c3" }, 1005);
+  state = apply(
+    state,
+    {
+      type: "colors",
+      id: "root",
+      colors: [DEFAULT_COLORS[0], DEFAULT_COLORS[3]],
+    },
+    1006,
+  );
+  state = apply(
+    state,
+    { type: "add", id: "skipped", parentId: "root", title: "Skipped" },
+    1007,
+  );
+  expect(state.nodes.find((node) => node.id === "skipped")?.color).not.toBe(
+    DEFAULT_COLORS[3],
+  );
+});

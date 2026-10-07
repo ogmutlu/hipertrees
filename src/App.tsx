@@ -18,6 +18,7 @@ import {
   totals,
 } from "./domain";
 import type { Action, GoalNode, State } from "./domain";
+import { exportArchive, archiveBackup } from "./export";
 import { Graph, nodeColor } from "./Graph";
 import { Icon } from "./icons";
 import {
@@ -41,10 +42,18 @@ interface SaveWindow extends Window {
     types: { description: string; accept: Record<string, string[]> }[];
   }) => Promise<FileSystemFileHandle>;
 }
-async function exportBackup(name: string, contents: string): Promise<void> {
+async function exportBackup(name: string, contents: Uint8Array): Promise<void> {
+  const blob = new Blob([new Uint8Array(contents)], {
+    type: "application/zip",
+  });
   const picker = (window as SaveWindow).showSaveFilePicker;
   if (!picker) {
-    download(name, contents);
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = name;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     return;
   }
   const file = await picker.call(window, {
@@ -52,13 +61,13 @@ async function exportBackup(name: string, contents: string): Promise<void> {
     types: [
       {
         description: "hyperforest backup",
-        accept: { "application/json": [".json"] },
+        accept: { "application/zip": [".zip"] },
       },
     ],
   });
   const stream = await file.createWritable();
   try {
-    await stream.write(contents);
+    await stream.write(blob);
     await stream.close();
   } catch (error: unknown) {
     await stream.abort().catch(() => {});
@@ -447,7 +456,9 @@ export function App({ workspace }: { workspace: Workspace }) {
       return;
     setBusy(true);
     try {
-      const raw = await file.text();
+      const raw = file.name.toLowerCase().endsWith(".zip")
+        ? archiveBackup(new Uint8Array(await file.arrayBuffer()))
+        : await file.text();
       await transact(() => workspace.replace(raw));
       setError("");
       setSelected(null);
@@ -486,11 +497,12 @@ export function App({ workspace }: { workspace: Workspace }) {
               className="quiet-button"
               onClick={() => {
                 setBusy(true);
-                void exportBackup(
-                  "hyperforest-backup.json",
-                  JSON.stringify(workspace.getSnapshot(), null, 2),
-                )
-                  .then(() => setError(""))
+                const snapshot = workspace.getSnapshot();
+                const archive = exportArchive(snapshot, Date.now());
+                void exportBackup("hyperforest-export.zip", archive)
+                  .then(() => {
+                    setError("");
+                  })
                   .catch((exception: unknown) => {
                     if (!(
                       exception instanceof DOMException &&
@@ -518,7 +530,7 @@ export function App({ workspace }: { workspace: Workspace }) {
               ref={importInput}
               hidden
               type="file"
-              accept="application/json,.json"
+              accept="application/json,application/zip,.json,.zip"
               aria-label="Import backup"
               onChange={(event) => {
                 void importFile(event.target.files?.[0]);
@@ -534,6 +546,24 @@ export function App({ workspace }: { workspace: Workspace }) {
             </button>
           </div>
         </header>
+        <div className="tree-actions" aria-label="Hypertree controls">
+          {state.trees.length > 1 && (
+            <button className="quiet-button" onClick={() => setDialog("tabs")}>
+              Rearrange tabs
+            </button>
+          )}
+          <button
+            className="new-tree"
+            disabled={busy}
+            onClick={() => {
+              setNewName("");
+              setLinkedTreeId("");
+              setDialog("tree");
+            }}
+          >
+            <Icon name="plus" size={16} /> New hypertree
+          </button>
+        </div>
         <nav className="tree-tabs" role="tablist" aria-label="Goal hypertrees">
           {state.trees.map((item) => (
             <button
@@ -553,22 +583,6 @@ export function App({ workspace }: { workspace: Workspace }) {
               </span>
             </button>
           ))}
-          {state.trees.length > 1 && (
-            <button className="quiet-button" onClick={() => setDialog("tabs")}>
-              Rearrange tabs
-            </button>
-          )}
-          <button
-            className="new-tree"
-            disabled={busy}
-            onClick={() => {
-              setNewName("");
-              setLinkedTreeId("");
-              setDialog("tree");
-            }}
-          >
-            <Icon name="plus" size={16} /> New hypertree
-          </button>
         </nav>
         {tree && node ? (
           <div className="workspace">

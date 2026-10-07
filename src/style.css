@@ -1786,3 +1786,12 @@ button:disabled {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+.tree-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+}

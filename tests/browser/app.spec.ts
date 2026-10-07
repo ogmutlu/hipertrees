@@ -799,7 +799,7 @@ test("export downloads directly without an app dialog", async ({ page }) => {
   await page.goto("./");
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "Export", exact: true }).click();
-  expect((await download).suggestedFilename()).toBe("hyperforest-backup.json");
+  expect((await download).suggestedFilename()).toBe("hyperforest-export.zip");
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
@@ -819,25 +819,24 @@ test("export writes a backup through the native Save As API", async ({
   await page.goto("./");
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  const saved = await page.evaluate(
-    async () =>
-      JSON.parse(
-        await (
-          await (
+  await expect
+    .poll(() =>
+      page.evaluate(async () => {
+        try {
+          const file = await (
             await (
               await navigator.storage.getDirectory()
-            ).getFileHandle("hyperforest-backup.json")
-          ).getFile()
-        ).text(),
-      ) as unknown,
-  );
-  const cached = await page.evaluate(
-    () =>
-      JSON.parse(
-        localStorage.getItem("hyperforest.workspace.v1") ?? "null",
-      ) as unknown,
-  );
-  expect(saved).toEqual(cached);
+            ).getFileHandle("hyperforest-export.zip")
+          ).getFile();
+          return Array.from(
+            new Uint8Array(await file.arrayBuffer()).slice(0, 2),
+          );
+        } catch {
+          return [];
+        }
+      }),
+    )
+    .toEqual([80, 75]);
 });
 
 test("focus tab title shows only the timer and updates every second", async ({
@@ -977,6 +976,14 @@ test("reorders tabs and routes linked focus to its source root", async ({
   await page
     .getByRole("button", { name: "Create hypertree", exact: true })
     .click();
+  const controls = await page.locator(".tree-actions").boundingBox();
+  const tabs = await page.getByRole("tablist").boundingBox();
+  expect(controls!.y + controls!.height).toBeLessThanOrEqual(tabs!.y);
+  await expect(
+    page
+      .getByRole("tablist")
+      .getByRole("button", { name: "New hypertree", exact: true }),
+  ).toHaveCount(0);
   await page
     .getByRole("button", { name: "Rearrange tabs", exact: true })
     .click();
@@ -998,11 +1005,28 @@ test("reorders tabs and routes linked focus to its source root", async ({
       page.evaluate(
         () =>
           JSON.parse(localStorage.getItem("hyperforest.workspace.v1")!).focus
-            .nodeId,
+            ?.nodeId,
       ),
     )
     .toBe("welcome");
   await page
     .getByRole("button", { name: "Pause & return", exact: true })
     .click();
+});
+
+test("export includes a readable YAML structure alongside the JSON backup", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(window, "showSaveFilePicker", {
+      configurable: true,
+      value: undefined,
+    }),
+  );
+  await page.goto("./");
+  const downloads: string[] = [];
+  page.on("download", (file) => downloads.push(file.suggestedFilename()));
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await expect.poll(() => downloads).toEqual(["hyperforest-export.zip"]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 });

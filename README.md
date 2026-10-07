@@ -86,7 +86,7 @@ want to stop counting. Data stays in this browser profile on this site's origin;
 it does not automatically sync between devices or with the Python CLI/TUI.
 
 **Export** opens the browser's Save As picker where supported or directly
-downloads a complete JSON backup, without an app dialog. In Firefox, enable
+downloads the ZIP export, without an app dialog. In Firefox, enable
 **Settings → General → Downloads → Always ask you where to save files** to choose
 the destination for each export. **Import** validates a backup before
 replacing the workspace and asks before replacing existing data. Cooperating
@@ -163,3 +163,21 @@ Use **Rearrange tabs** to move hypertrees earlier or later. The order is saved
 locally and included in backups. Focusing a linked vertex starts a session on the
 original hypertree’s root; its live and saved time appears in both views without
 adding a second session. A deleted source cannot be focused through its link.
+
+New root children choose the first unused default subtree color, checking every
+assigned color in that hypertree. After the palette is exhausted, distinct generated
+colors are used. Descendants still inherit their parent’s colors.
+
+**Export** saves `hyperforest-export.zip`, containing:
+
+- `hyperforest-backup.json`: the complete restorable workspace.
+- `hyperforest-structure.yaml`: a readable nested report of all hypertrees and
+  vertices with cumulative focus times, including active sessions and linked
+  hypertrees, in hours/minutes/seconds and precise milliseconds.
+- `notes/`: a Markdown file for every vertex, named after its hypertree and vertex.
+  Filename collisions receive numbered suffixes.
+
+**Import** accepts the ZIP archive or an existing JSON backup. The YAML and notes
+are readable reports; importing restores the original JSON snapshot.
+
+**Rearrange tabs** and **New hypertree** appear above the tabs, aligned to the right.

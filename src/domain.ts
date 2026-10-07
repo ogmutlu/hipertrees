@@ -59,6 +59,25 @@ export function assignedNodeColors(
     ? node.colors.map((color) => color.toLowerCase())
     : [assignedNodeColor(nodes, node)];
 }
+export function nextSubtreeColor(state: State, treeId: string): string {
+  const used = new Set(
+    state.nodes
+      .filter((node) => node.treeId === treeId)
+      .flatMap((node) => assignedNodeColors(state.nodes, node)),
+  );
+  for (const color of DEFAULT_COLORS.slice(1))
+    if (!used.has(color)) return color;
+  // Continue with distinct colors after the default palette is exhausted.
+  for (let index = 1; ; index++) {
+    const seed = (index * 7919) % 2097152;
+    const color =
+      "#" +
+      [96 + (seed & 127), 96 + ((seed >> 7) & 127), 96 + ((seed >> 14) & 127)]
+        .map((channel) => channel.toString(16).padStart(2, "0"))
+        .join("");
+    if (!used.has(color)) return color;
+  }
+}
 const colorSchema = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/)
@@ -606,14 +625,7 @@ export function apply(state: State, action: Action, now: number): State {
               filled: true,
               ...(parent.id === parent.treeId
                 ? {
-                    color:
-                      DEFAULT_COLORS[
-                        (state.nodes.filter(
-                          (node) => node.parentId === parent.id,
-                        ).length %
-                          (DEFAULT_COLORS.length - 1)) +
-                          1
-                      ],
+                    color: nextSubtreeColor(state, parent.treeId),
                   }
                 : {
                     color: assignedNodeColor(state.nodes, parent),
